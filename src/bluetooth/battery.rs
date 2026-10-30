@@ -8,6 +8,12 @@ use futures::executor::block_on;
 use crate::message::Message;
 
 pub static mut CANCEL_BATTERY_CHECK: bool = false;
+
+fn read_kernel_battery_percent(address: &str) -> Option<i8> {
+    let device_address: bluer::Address = address.parse().ok()?;
+    let battery_percent = crate::input_devices::find_kernel_input_devices(device_address)?.battery_percent?;
+    Some(battery_percent.min(100) as i8)
+}
 static mut LAST_ADDRESS: String = String::new();
 static mut PATH: String = String::new();
 
@@ -26,11 +32,12 @@ fn handle_properties_updated(sender: Sender<Message>) {
     let conn = Connection::new_system().unwrap();
     let proxy = conn.with_proxy("org.bluez", unsafe {&PATH}, std::time::Duration::from_millis(5000));
     
-    let reported = if let Ok(val) = proxy.percentage() {
+        let reported = if let Ok(val) = proxy.percentage() {
         val as i8
     }
     else {
-        -1
+        let device_address = unsafe { LAST_ADDRESS.clone() };
+        read_kernel_battery_percent(&device_address).unwrap_or(-1)
     };
     block_on(sender.send(Message::UpdateBatteryLevel(reported))).expect("cannot send message");
 }
@@ -69,11 +76,11 @@ pub fn get_battery_for_device(address: String, adapter: String, sender: Sender<M
     // send a first reported battery to the UI as we don't want to wait for the battery to change to let the user know what it is
     // as that could take an unreasonably long time with the dbus implementation
     // should add a fallback (or maybe make this the fallback) with a better get battery method
-    let first_reported = if let Ok(val) = proxy.percentage() {
+        let first_reported = if let Ok(val) = proxy.percentage() {
         val as i8
     }
     else {
-        -1
+        read_kernel_battery_percent(&address).unwrap_or(-1)
     };
     
     block_on(sender.send(Message::UpdateBatteryLevel(first_reported))).expect("cannot send message");

@@ -5,6 +5,8 @@ use gtk::subclass::prelude::*;
 use gtk::prelude::{ObjectExt, WidgetExt};
 use std::cell::RefCell;
 
+use crate::pairing_stages::{PairingStages, PAIRING_STEP_DEFINITIONS};
+
 mod imp {
     use adw::glib::property::PropertySet;
     use super::*;
@@ -16,8 +18,9 @@ mod imp {
     pub struct DeviceActionRow {
         #[template_child]
         pub rssi_icon: TemplateChild<gtk::Image>,
+        
         #[template_child]
-        pub connected_icon: TemplateChild<gtk::Image>,
+        pub pairing_status_icon: TemplateChild<gtk::Image>,
 
         #[property(get, set)]
         pub rssi: RefCell<i32>,
@@ -61,15 +64,6 @@ mod imp {
     
     impl DeviceActionRow {
     	pub fn private_set_current_connected(&self, connected: bool) {
-    		let icon = self.connected_icon.get();
-
-    		if connected {
-    			icon.set_visible(true);
-    		}
-    		else {
-                icon.set_visible(false);
-    		}
-
     		self.is_connected.set(connected);
     	}
         
@@ -168,6 +162,45 @@ impl DeviceActionRow {
     
     pub fn set_row_adapter_name(&self, name: String) {
         self.imp().private_set_adapter_name(name);
+    }
+
+    pub fn set_pairing_progress(&self, stages: &PairingStages) {
+        let pairing_status_icon = self.imp().pairing_status_icon.get();
+        for style_class in ["success", "warning", "error", "dim-label"] {
+            pairing_status_icon.remove_css_class(style_class);
+        }
+
+        let input_device_missing = stages.connected && stages.is_input_device && stages.kernel_input_devices.is_none();
+        let (icon_name, style_class, status_summary) = if stages.blocked {
+            ("action-unavailable-symbolic", "error", "Blocked\nEvery connection is rejected")
+        } else if stages.paired && !stages.bonded {
+            ("dialog-warning-symbolic", "warning", "Bond missing\nTrust can't be saved")
+        } else if input_device_missing {
+            ("dialog-warning-symbolic", "warning", "Connected, but no input device appeared")
+        } else if stages.connected {
+            ("bluetooth-active-symbolic", "success", "Connected")
+        } else if stages.bonded && stages.trusted {
+            ("bluetooth-disconnected-symbolic", "dim-label", "Ready\nReconnects when turned on")
+        } else {
+            ("changes-prevent-symbolic", "dim-label", "Bonded\nEach connection needs approval")
+        };
+
+        let step_overview = PAIRING_STEP_DEFINITIONS
+            .iter()
+            .filter(|definition| stages.is_step_applicable(definition.step))
+            .map(|definition| {
+                let step_state = if stages.is_step_done(definition.step) { "done" } else { "not yet" };
+                format!("{}: {}", definition.title, step_state)
+            })
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        pairing_status_icon.set_icon_name(Some(icon_name));
+        pairing_status_icon.add_css_class(style_class);
+        pairing_status_icon.set_tooltip_text(Some(&format!("{}\n\n{}", status_summary, step_overview)));
+        pairing_status_icon.set_visible(stages.paired);
+
+        self.imp().private_set_trusted(stages.trusted);
     }
 }
 

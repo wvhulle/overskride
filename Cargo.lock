@@ -50,8 +50,7 @@ checksum = "0d8c1fef690941d3e7788d328517591fecc684c084084702d6ff1641e993699a"
 [[package]]
 name = "bluer"
 version = "0.17.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af68112f5c60196495c8b0eea68349817855f565df5b04b2477916d09fb1a901"
+source = "git+https://github.com/wvhulle/bluer?rev=907f8ec76cf25bf536c8ac6a83d8ce6442575cc4#907f8ec76cf25bf536c8ac6a83d8ce6442575cc4"
 dependencies = [
  "custom_debug",
  "dbus",

@@ -4,6 +4,17 @@ use futures::FutureExt;
 use crate::message::Message;
 use crate::window::OVERSKRIDE_PROPS;
 
+const SERVICE_AUTHORIZATION_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
+
+async fn trust_agent_device(session: &bluer::Session, adapter_name: &str, address: bluer::Address) {
+    let device = session.adapter(adapter_name).and_then(|adapter| adapter.device(address));
+    if let Ok(device) = device {
+        if let Err(trust_error) = device.set_trusted(true).await {
+            println!("cannot trust device {}: {:?}", address, trust_error);
+        }
+    }
+}
+
 async fn request_pin_code(request: bluer::agent::RequestPinCode, sender: Sender<Message>) -> bluer::agent::ReqResult<String> {
     println!("request pincode incoming");
 	let address = request.device;
@@ -72,9 +83,10 @@ async fn display_pass_key(request: bluer::agent::DisplayPasskey, sender: Sender<
     Ok(())
 }
 
-async fn request_confirmation(request: bluer::agent::RequestConfirmation, _: bluer::Session, _: bool, sender: Sender<Message>) -> bluer::agent::ReqResult<()> {
+async fn request_confirmation(request: bluer::agent::RequestConfirmation, session: bluer::Session, set_trust: bool, sender: Sender<Message>) -> bluer::agent::ReqResult<()> {
     println!("pairing confirmation incoming");
 	let address = request.device;
+    let adapter_name = request.adapter.clone();
     
     sender.send(Message::RequestConfirmation(request)).await.expect("cannot send message");
 
@@ -86,6 +98,9 @@ async fn request_confirmation(request: bluer::agent::RequestConfirmation, _: blu
 
     if confirmed {
         println!("allowed pairing with device");
+        if set_trust {
+            trust_agent_device(&session, &adapter_name, address).await;
+        }
         sender.send(Message::SwitchActive(true, address, true)).await.expect("cannot send message");
         Ok(())
     }
@@ -95,9 +110,10 @@ async fn request_confirmation(request: bluer::agent::RequestConfirmation, _: blu
     }
 }
 
-async fn request_authorization(request: bluer::agent::RequestAuthorization, _: bluer::Session, _: bool, sender: Sender<Message>) -> bluer::agent::ReqResult<()> {
+async fn request_authorization(request: bluer::agent::RequestAuthorization, session: bluer::Session, set_trust: bool, sender: Sender<Message>) -> bluer::agent::ReqResult<()> {
     println!("pairing authorization incoming");
 	let address = request.device;
+    let adapter_name = request.adapter.clone();
 
     sender.send(Message::RequestAuthorization(request)).await.expect("cannot send message");
 
@@ -108,6 +124,9 @@ async fn request_authorization(request: bluer::agent::RequestAuthorization, _: b
     let confirmed = OVERSKRIDE_PROPS.lock().unwrap().confirm_authorization;
     if confirmed {
         println!("allowed pairing with device");
+        if set_trust {
+            trust_agent_device(&session, &adapter_name, address).await;
+        }
         sender.send(Message::SwitchActive(true, address, true)).await.expect("cannot send message");
         Ok(())
     }
@@ -118,20 +137,35 @@ async fn request_authorization(request: bluer::agent::RequestAuthorization, _: b
 
 }
 
-async fn authorize_service(request: bluer::agent::AuthorizeService, sender: Sender<Message>) -> bluer::agent::ReqResult<()> {
+async fn authorize_service(request: bluer::agent::AuthorizeService, session: bluer::Session, sender: Sender<Message>) -> bluer::agent::ReqResult<()> {
     println!("service authorization incoming");
 	let address = request.device;
+    let adapter_name = request.adapter.clone();
 
     sender.send(Message::AuthorizeService(request)).await.expect("cannot send message");
 
     OVERSKRIDE_PROPS.lock().unwrap().displaying_dialog = true;
 
-    wait_for_dialog_exit().await;
+    let answered_in_time = tokio::time::timeout(SERVICE_AUTHORIZATION_TIMEOUT, wait_for_dialog_exit()).await.is_ok();
+    if !answered_in_time {
+        {
+            let mut overskride_properties = OVERSKRIDE_PROPS.lock().unwrap();
+            overskride_properties.displaying_dialog = false;
+            overskride_properties.confirm_authorization = false;
+            overskride_properties.trust_after_authorization = false;
+        }
+        sender.send(Message::ExpireServiceAuthorization(address)).await.expect("cannot send message");
+        return Err(bluer::agent::ReqError::Rejected);
+    }
 
     let confirmed = OVERSKRIDE_PROPS.lock().unwrap().confirm_authorization;
+    let trust_after_authorization = std::mem::take(&mut OVERSKRIDE_PROPS.lock().unwrap().trust_after_authorization);
 
     if confirmed {
         println!("allowed pairing with device");
+        if trust_after_authorization {
+            trust_agent_device(&session, &adapter_name, address).await;
+        }
         sender.send(Message::SwitchActive(true, address, true)).await.expect("cannot send message");
         Ok(())
     }
@@ -144,6 +178,7 @@ async fn authorize_service(request: bluer::agent::AuthorizeService, sender: Send
 pub async fn register_agent(session: &bluer::Session, request_default: bool, set_trust: bool, sender_to_be_sent: Sender<Message>) -> bluer::Result<bluer::agent::AgentHandle> {
     let session1 = session.clone();
     let session2 = session.clone();
+    let session3 = session.clone();
 
     // IDK if this is the best way, but it's a way.
     let sender1 = sender_to_be_sent.clone();
@@ -166,7 +201,7 @@ pub async fn register_agent(session: &bluer::Session, request_default: bool, set
         request_authorization: Some(Box::new(move |req| {
             request_authorization(req, session2.clone(), set_trust, sender6.clone()).boxed()
         })),
-        authorize_service: Some(Box::new(move |req| authorize_service(req, sender7.clone()).boxed())),
+        authorize_service: Some(Box::new(move |req| authorize_service(req, session3.clone(), sender7.clone()).boxed())),
         ..Default::default()
     };
 
@@ -176,20 +211,15 @@ pub async fn register_agent(session: &bluer::Session, request_default: bool, set
 }
 
 pub async fn wait_for_dialog_exit() {
-    unsafe {
-        loop {
-            if !OVERSKRIDE_PROPS.lock().unwrap().displaying_dialog {
-				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                break;
-            }
-        }
+    while OVERSKRIDE_PROPS.lock().unwrap().displaying_dialog {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
 }
 
 #[tokio::main]
 pub async fn register_bluetooth_agent(sender: Sender<Message>) -> bluer::Result<()> {
 	let session = bluer::Session::new().await?;
-	let agent = register_agent(&session, true, false, sender.clone()).await?;	
+	let agent = register_agent(&session, true, true, sender.clone()).await?;	
    	println!("registered agent standalone {:?}", agent);
 
    	loop {

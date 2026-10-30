@@ -30,7 +30,9 @@ use crate::audio_profiles;
 use crate::bluetooth_settings::get_store_location_from_dialog;
 use crate::device_action_row::DeviceActionRow;
 use crate::message::Message;
-use crate::more_info_page::MoreInfoPage;
+
+use crate::pairing_stages::read_pairing_stages;
+use crate::pairing_timeline::{PairingStepAction, PairingTimeline, ServiceAuthorizationAnswer};
 use crate::obex::{self, register_obex_agent};
 use crate::receiving_row::ReceivingRow;
 use crate::selectable_row::SelectableRow;
@@ -75,11 +77,19 @@ mod imp {
         #[template_child]
         pub device_name_entry: TemplateChild<adw::EntryRow>,
         #[template_child]
-        pub trusted_row: TemplateChild<adw::SwitchRow>,
+        pub pairing_timeline: TemplateChild<PairingTimeline>,
         #[template_child]
-        pub blocked_row: TemplateChild<adw::SwitchRow>,
+        pub scan_toggle_button: TemplateChild<gtk::ToggleButton>,
         #[template_child]
-        pub remove_device_button: TemplateChild<gtk::Button>,
+        pub scan_spinner: TemplateChild<gtk::Spinner>,
+        #[template_child]
+        pub radio_group: TemplateChild<adw::PreferencesGroup>,
+        #[template_child]
+        pub radio_combo_row: TemplateChild<adw::ComboRow>,
+        #[template_child]
+        pub connection_properties_group: TemplateChild<adw::PreferencesGroup>,
+        
+        
         #[template_child]
         pub bluetooth_settings_row: TemplateChild<adw::ActionRow>,
         #[template_child]
@@ -125,9 +135,16 @@ mod imp {
         #[template_child]
         pub audio_profile_expander: TemplateChild<adw::ExpanderRow>,
         #[template_child]
-        pub battery_level_indicator: TemplateChild<BatteryLevelIndicator>,
+        pub address_detail_row: TemplateChild<adw::ActionRow>,
         #[template_child]
-        pub more_info_row: TemplateChild<adw::ActionRow>,
+        pub manufacturer_detail_row: TemplateChild<adw::ActionRow>,
+        #[template_child]
+        pub type_detail_row: TemplateChild<adw::ActionRow>,
+        #[template_child]
+        pub distance_detail_row: TemplateChild<adw::ActionRow>,
+        #[template_child]
+        pub services_detail_row: TemplateChild<adw::ExpanderRow>,
+        
         #[template_child]
         pub window_title: TemplateChild<adw::WindowTitle>,
         #[template_child]
@@ -139,6 +156,11 @@ mod imp {
         pub timeout_signal_id: OnceCell<SignalHandlerId>,
         pub powered_signal_id: OnceCell<SignalHandlerId>,
         pub discoverable_signal_id: OnceCell<SignalHandlerId>,
+        pub radio_signal_id: OnceCell<SignalHandlerId>,
+        pub radio_adapter_names: RefCell<Vec<String>>,
+        pub pending_device_selection: RefCell<Option<bluer::Address>>,
+        pub pending_service_authorization: RefCell<Option<(bluer::Address, String, String)>>,
+        pub service_detail_rows: RefCell<Vec<adw::ActionRow>>,
     }
 
     #[glib::object_subclass]
@@ -153,7 +175,8 @@ mod imp {
             ReceivingRow::ensure_type();
             SelectableRow::ensure_type();
             BatteryLevelIndicator::ensure_type();
-            MoreInfoPage::ensure_type();
+            
+            PairingTimeline::ensure_type();
 
             klass.bind_template();
             /*klass.install_action("win.refresh_devices", None, move |win, _, _| {
@@ -260,13 +283,72 @@ impl OverskrideWindow {
                 let clone = self_clone.clone();
 
                 match msg {
-                    Message::SwitchTrusted(trusted) => {
-                        let trusted_row = clone.imp().trusted_row.get();
-                        trusted_row.set_active(trusted);
+                    Message::SwitchPairingStages(address, stages) => {
+                        let listbox = clone.imp().main_listbox.get();
+                        let mut listbox_index = 0;
+
+                        while let Some(row) = listbox.row_at_index(listbox_index) {
+                            let action_row = row.downcast::<DeviceActionRow>().expect("cannot downcast to action row.");
+                            if action_row.get_bluer_address() == address {
+                                action_row.set_pairing_progress(&stages);
+                            }
+                            listbox_index += 1;
+                        }
+
+                        if address == OVERSKRIDE_PROPS.lock().unwrap().address {
+                            clone.imp().pairing_timeline.get().render(&stages);
+                            clone.show_pending_service_authorization_if_open(address);
+                        }
                     }
-                    Message::SwitchBlocked(blocked) => {
-                        let blocked_row = clone.imp().blocked_row.get();
-                        blocked_row.set_active(blocked);
+                    Message::PopulateRadios(radios) => {
+                        let radio_combo_row = clone.imp().radio_combo_row.get();
+                        let radio_labels: Vec<&str> = radios.iter().map(|radio| radio.radio_label.as_str()).collect();
+                        let current_adapter = OVERSKRIDE_PROPS.lock().unwrap().current_adapter.clone();
+                        let current_position = radios.iter().position(|radio| radio.adapter_name == current_adapter).unwrap_or(0);
+
+                        if let Some(radio_signal_id) = clone.imp().radio_signal_id.get() {
+                            radio_combo_row.block_signal(radio_signal_id);
+                        }
+                        radio_combo_row.set_model(Some(&gtk::StringList::new(&radio_labels)));
+                        radio_combo_row.set_selected(current_position as u32);
+                        if let Some(radio_signal_id) = clone.imp().radio_signal_id.get() {
+                            radio_combo_row.unblock_signal(radio_signal_id);
+                        }
+
+                        clone.imp().radio_group.get().set_visible(radios.len() > 1);
+                        *clone.imp().radio_adapter_names.borrow_mut() = radios.into_iter().map(|radio| radio.adapter_name).collect();
+                    }
+                    Message::SwitchScanning(scanning) => {
+                        clone.imp().scan_toggle_button.get().set_active(scanning);
+                        clone.imp().scan_spinner.get().set_spinning(scanning);
+                    }
+                    Message::SwitchDeviceDetails(address, device_address, manufacturer, device_type, distance, services_list) => {
+                        if address == OVERSKRIDE_PROPS.lock().unwrap().address {
+                            clone.imp().address_detail_row.get().set_subtitle(&device_address);
+                            clone.imp().manufacturer_detail_row.get().set_subtitle(&glib::markup_escape_text(&manufacturer));
+                            clone.imp().type_detail_row.get().set_subtitle(&glib::markup_escape_text(&device_type));
+                            clone.imp().distance_detail_row.get().set_subtitle(&glib::markup_escape_text(&distance));
+
+                            let services_detail_row = clone.imp().services_detail_row.get();
+                            for service_detail_row in clone.imp().service_detail_rows.borrow_mut().drain(..) {
+                                services_detail_row.remove(&service_detail_row);
+                            }
+                            services_detail_row.set_subtitle(&format!("{} offered", services_list.len()));
+                            let mut service_detail_rows = Vec::new();
+                            for service_name in services_list {
+                                let service_detail_row = adw::ActionRow::builder().title(glib::markup_escape_text(&service_name).as_str()).build();
+                                services_detail_row.add_row(&service_detail_row);
+                                service_detail_rows.push(service_detail_row);
+                            }
+                            *clone.imp().service_detail_rows.borrow_mut() = service_detail_rows;
+                        }
+                    }
+                    Message::ExpireServiceAuthorization(address) => {
+                        let expired_request = clone.imp().pending_service_authorization.borrow_mut().take();
+                        if expired_request.is_some_and(|(pending_address, _, _)| pending_address == address) {
+                            clone.imp().pairing_timeline.get().clear_service_authorization_request();
+                            sender_for_receiver_clone.send(Message::PopupError("Connection request expired and was denied.".to_string(), adw::ToastPriority::Normal)).await.expect("cannot send message");
+                        }
                     }
                     Message::SwitchActive(active, address, is_current) => {
                         let listbox = clone.imp().main_listbox.get();
@@ -365,6 +447,13 @@ impl OverskrideWindow {
                                 let main_listbox = clone.imp().main_listbox.get();
                                 main_listbox.append(&ok_row);
                                 main_listbox.invalidate_sort();
+
+                                let reselect_this_row = *clone.imp().pending_device_selection.borrow() == Some(ok_row.get_bluer_address());
+                                if reselect_this_row {
+                                    clone.imp().pending_device_selection.replace(None);
+                                    main_listbox.select_row(Some(&ok_row));
+                                    ok_row.emit_activate();
+                                }
                             }
                         }
                     }
@@ -559,6 +648,7 @@ impl OverskrideWindow {
 
                         // best practices out the window :D
                         // need to ~hashmap~ this shit later
+                        let readable_message = glib::markup_escape_text(&string);
                         let title_holder = match string {
                             s if s.to_lowercase().contains("page-timeout") => {
                                 "Failed to connect to device, connection timed out"
@@ -673,7 +763,11 @@ impl OverskrideWindow {
                             }
                             e => {
                                 println!("unknown error: {}", e.clone());
-                                "Unknown error occurred"
+                                if e.contains(' ') {
+                                    readable_message.as_str()
+                                } else {
+                                    "Unknown error occurred"
+                                }
                             }
                         };
 
@@ -1006,37 +1100,30 @@ impl OverskrideWindow {
                             }
                         };
 
-                        let popup = adw::MessageDialog::new(Some(&clone), Some("Service Authorization Request"), None);
+                                                println!("service authorization for {} on {}", device, adapter);
+                        let requesting_address = request.device;
+                        let requesting_adapter_name = request.adapter.clone();
+                        *clone.imp().pending_service_authorization.borrow_mut() = Some((requesting_address, requesting_adapter_name.clone(), service_id.clone()));
 
-                        let body = "Is <span font_weight='bold' color='#78aeed'>`".to_string() + service_id.as_str() + "`</span> allowed to be authorized?\nRequest by <span font_weight='bold'>`" + device.as_str() + "`</span> on <span font_weight='bold'>`" + adapter.as_str() + "`</span>.";
-                        let label = gtk::Label::new(Some(""));
-                        label.set_use_markup(true);
-                        label.set_label(body.as_str());
-                        popup.set_extra_child(Some(&label));
-
-                        popup.set_close_response("cancel");
-                        popup.set_modal(true);
-                        popup.set_destroy_with_parent(true);
-
-                        popup.add_response("cancel", "Cancel");
-                        popup.add_response("allow", "Allow");
-                        popup.set_response_appearance("allow", adw::ResponseAppearance::Suggested);
-                        popup.set_default_response(Some("allow"));
-
-                        let pass_key = Rc::new(RefCell::new(false));
-                        popup.clone().choose(gio::Cancellable::NONE, move |response| {
-                            match response.to_string() {
-                                s if s.contains("allow") => {
-                                    *pass_key.borrow_mut() = true;
+                        let request_is_on_open_page = OVERSKRIDE_PROPS.lock().unwrap().address == requesting_address
+                            && OVERSKRIDE_PROPS.lock().unwrap().current_adapter == requesting_adapter_name;
+                        if request_is_on_open_page {
+                            clone.show_pending_service_authorization_if_open(requesting_address);
+                        } else {
+                            let request_toast = adw::Toast::builder()
+                                .title(glib::markup_escape_text(&format!("{} wants to connect ({})", device, service_id)).as_str())
+                                .button_label("Review")
+                                .timeout(25)
+                                .priority(adw::ToastPriority::High)
+                                .build();
+                            let window_for_review = clone.downgrade();
+                            request_toast.connect_button_clicked(move |_| {
+                                if let Some(window) = window_for_review.upgrade() {
+                                    window.open_device_page(requesting_address, &requesting_adapter_name);
                                 }
-                                _ => {
-                                    *pass_key.borrow_mut() = false;
-                                }
-                            }
-
-                            OVERSKRIDE_PROPS.lock().unwrap().displaying_dialog = false;
-                            OVERSKRIDE_PROPS.lock().unwrap().confirm_authorization = *pass_key.borrow();
-                        });
+                            });
+                            clone.imp().toast_overlay.get().add_toast(request_toast);
+                        }
                     }
                     Message::GoToBluetoothSettings(doso) => {
                         if doso {
@@ -1217,6 +1304,8 @@ impl OverskrideWindow {
                     Message::SwitchHasObexService(state) => {
                         let connected_switch_row = clone.imp().connected_switch_row.get();
                         connected_switch_row.set_row_has_obex(state);
+                        clone.imp().send_file_row.get().set_visible(state);
+                        clone.update_connection_properties_visibility();
                     }
                     Message::SetNameValid(state) => {
                         // if the name is invalid this should be reported back to user through colors on the entry
@@ -1334,6 +1423,8 @@ impl OverskrideWindow {
                     Message::SwitchAudioProfilesList(state) => {
                         let audio_profile_expander = clone.imp().audio_profile_expander.get();
                         audio_profile_expander.set_sensitive(state);
+                        audio_profile_expander.set_visible(state);
+                        clone.update_connection_properties_visibility();
                     }
                     Message::SetActiveAudioProfile(profile) => {
                         let audio_profile_expander = clone.imp().audio_profile_expander.get();
@@ -1364,9 +1455,7 @@ impl OverskrideWindow {
                         audio_profile_expander.set_expanded(state);
                     }
                     Message::UpdateBatteryLevel(level) => {
-                        let battery_level_indicator = clone.imp().battery_level_indicator.get();
-
-                        battery_level_indicator.set_indicator_battery_level(level);
+                        clone.imp().pairing_timeline.get().set_battery_level(level);
                     }
                 }
             }
@@ -1475,83 +1564,106 @@ impl OverskrideWindow {
         connected_switch_row.set_activatable(true);
         connected_switch_row.connect_activated(move |row| {
             row.set_spinning(false);
-
-            let sender_clone = sender1.clone();
-            let address = OVERSKRIDE_PROPS.lock().unwrap().address;
-            let adapter_name = OVERSKRIDE_PROPS.lock().unwrap().current_adapter.clone();
-
             row.set_active(!row.active());
-            runtime().spawn(async move {
-                if let Err(err) =
-                    device::set_device_active(address, sender_clone.clone(), adapter_name).await
-                {
-                    let string = err.clone().message;
-                    println!("error while connecting {:?}\n", err);
-
-                    sender_clone
-                        .send(Message::PopupError(string, adw::ToastPriority::High))
-                        .await.expect("cannot send message");
-                    sender_clone
-                        .send(Message::SwitchActive(false, address, true))
-                        .await.expect("cannot send message");
-                    sender_clone
-                        .send(Message::SwitchActiveSpinner(false))
-                        .await.expect("cannot send message");
-                    sender_clone
-                        .send(Message::SwitchSendFileActive(false))
-                        .await.expect("cannot send message");
-                }
-            });
+            spawn_device_activation(sender1.clone());
         });
 
-        // block this device from doing anything pretty much
-        // debating if blocked devices should appear in the list again or not
-        let blocked_row = self.imp().blocked_row.get();
-        let sender2 = sender.clone();
-        blocked_row.connect_activated(move |row| {
-            let sender_clone = sender2.clone();
+        let radio_combo_row = self.imp().radio_combo_row.get();
+        let window_for_radio_selector = self.downgrade();
+        let radio_signal_id = radio_combo_row.connect_selected_notify(move |combo_row| {
+            let Some(window) = window_for_radio_selector.upgrade() else {
+                return;
+            };
+            let selected_adapter_name = window.imp().radio_adapter_names.borrow().get(combo_row.selected() as usize).cloned();
+            if let Some(selected_adapter_name) = selected_adapter_name {
+                if selected_adapter_name != OVERSKRIDE_PROPS.lock().unwrap().current_adapter {
+                    window.switch_radio(&selected_adapter_name, None);
+                }
+            }
+        });
+        self.imp().radio_signal_id.set(radio_signal_id).expect("cannot set radio signal id");
+
+        let scan_toggle_button = self.imp().scan_toggle_button.get();
+        scan_toggle_button.connect_toggled(|toggle_button| {
+            device::request_device_scan(toggle_button.is_active());
+        });
+
+        let pairing_timeline = self.imp().pairing_timeline.get();
+        let sender_for_timeline = sender.clone();
+        let window_for_timeline = self.downgrade();
+        pairing_timeline.connect_step_action(move |step_action| {
+            let sender_clone = sender_for_timeline.clone();
             let address = OVERSKRIDE_PROPS.lock().unwrap().address;
             let adapter_name = OVERSKRIDE_PROPS.lock().unwrap().current_adapter.clone();
-            let current_state = !row.is_active();
 
-            runtime().spawn(async move {
-                if let Err(err) =
-                    device::set_device_blocked(address, sender_clone.clone(), adapter_name).await
-                {
-                    let string = err.message;
-                    sender_clone
-                        .send(Message::PopupError(string, adw::ToastPriority::High))
-                        .await.expect("cannot send message");
-                    sender_clone
-                        .send(Message::SwitchBlocked(current_state))
-                        .await.expect("cannot send message");
+            match step_action {
+                PairingStepAction::ShowRadio(adapter_name) => {
+                    if let Some(window) = window_for_timeline.upgrade() {
+                        window.switch_radio(&adapter_name, Some(address));
+                    }
                 }
-            });
+                PairingStepAction::PairViaRadio(adapter_name) => {
+                    if let Some(window) = window_for_timeline.upgrade() {
+                        window.switch_radio(&adapter_name, None);
+                    }
+                    let pair_via_radio_hint = format!(
+                        "Switched to {}. Put the device in pairing mode; it appears in the list, then press Pair.",
+                        crate::radios::describe_radio(&adapter_name)
+                    );
+                    runtime().spawn(async move {
+                        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+                        device::request_device_scan(true);
+                        sender_clone
+                            .send(Message::PopupError(pair_via_radio_hint, adw::ToastPriority::High))
+                            .await.expect("cannot send message");
+                    });
+                }
+                
+                PairingStepAction::Pair | PairingStepAction::Connect | PairingStepAction::Disconnect => {
+                    spawn_device_activation(sender_clone);
+                }
+                PairingStepAction::PairAgain => {
+                    runtime().spawn(async move {
+                        if let Err(err) = device::pair_device_again(address, sender_clone.clone(), adapter_name).await {
+                            sender_clone
+                                .send(Message::PopupError(err.message, adw::ToastPriority::High))
+                                .await.expect("cannot send message");
+                        }
+                    });
+                }
+                PairingStepAction::ForgetDevice => {
+                    runtime().spawn(async move {
+                        if let Err(err) = device::remove_device(address, sender_clone.clone(), adapter_name).await {
+                            sender_clone
+                                .send(Message::PopupError(err.message, adw::ToastPriority::High))
+                                .await.expect("cannot send message");
+                        }
+                    });
+                }
+                PairingStepAction::AnswerServiceAuthorization(authorization_answer) => {
+                    if let Some(window) = window_for_timeline.upgrade() {
+                        window.imp().pending_service_authorization.replace(None);
+                    }
+                    let mut overskride_properties = OVERSKRIDE_PROPS.lock().unwrap();
+                    overskride_properties.confirm_authorization = authorization_answer != ServiceAuthorizationAnswer::Deny;
+                    overskride_properties.trust_after_authorization = authorization_answer == ServiceAuthorizationAnswer::AlwaysAllow;
+                    overskride_properties.displaying_dialog = false;
+                }
+                PairingStepAction::SetConnectionPolicy(connection_policy) => {
+                    runtime().spawn(async move {
+                        if let Err(err) = device::set_connection_policy(address, connection_policy, sender_clone.clone(), adapter_name).await {
+                            sender_clone
+                                .send(Message::PopupError(err.message, adw::ToastPriority::High))
+                                .await.expect("cannot send message");
+                        }
+                    });
+                }
+            }
         });
 
-        // sets the devices trusted state (for auto accept files)
-        let trusted_row = self.imp().trusted_row.get();
-        let sender3 = sender.clone();
-        trusted_row.connect_activated(move |row| {
-            let sender_clone = sender3.clone();
-            let address = OVERSKRIDE_PROPS.lock().unwrap().address;
-            let adapter_name = OVERSKRIDE_PROPS.lock().unwrap().current_adapter.clone();
-            let trusted = !row.is_active();
+        
 
-            runtime().spawn(async move {
-                if let Err(err) =
-                    device::set_device_trusted(address, sender_clone.clone(), adapter_name).await
-                {
-                    let string = err.message;
-                    sender_clone
-                        .send(Message::PopupError(string, adw::ToastPriority::High))
-                        .await.expect("cannot send message");
-                    sender_clone
-                        .send(Message::SwitchTrusted(trusted))
-                        .await.expect("cannot send message");
-                };
-            });
-        });
+        
 
         // change the currently selected devices name
         let device_name_entry = self.imp().device_name_entry.get();
@@ -1565,29 +1677,6 @@ impl OverskrideWindow {
             runtime().spawn(async move {
                 if let Err(err) =
                     device::set_device_name(address, name, sender_clone.clone(), adapter_name).await
-                {
-                    let string = err.message;
-                    sender_clone
-                        .send(Message::PopupError(string, adw::ToastPriority::High))
-                        .await.expect("cannot send message");
-                }
-            });
-        });
-
-        // remove the currently selected device
-        // should add "undo"
-        let remove_device_button = self.imp().remove_device_button.get();
-        let sender4 = sender.clone();
-        remove_device_button.connect_clicked(move |_| {
-            let sender_clone = sender4.clone();
-            let address = OVERSKRIDE_PROPS.lock().unwrap().address;
-            let adapter_name = OVERSKRIDE_PROPS.lock().unwrap().current_adapter.clone();
-
-            runtime().spawn(async move {
-                sender_clone
-                    .send(Message::SwitchActive(false, address, false))
-                    .await.expect("cannot send message");
-                if let Err(err) = device::remove_device(address, sender_clone.clone(), adapter_name).await
                 {
                     let string = err.message;
                     sender_clone
@@ -1856,51 +1945,6 @@ impl OverskrideWindow {
         });
         auto_accept_trusted_row.set_active(OVERSKRIDE_PROPS.lock().unwrap().auto_accept_from_trusted);
 
-        let more_info_row = self.imp().more_info_row.get();
-        let self_clone7 = self.clone();
-        more_info_row.connect_activated(move |_| {
-            runtime().block_on(clone!(
-                #[strong]
-                self_clone7,
-                async move {
-                let message = MoreInfoPage::new();
-
-                let current_device = self_clone7
-                    .imp()
-                    .main_listbox
-                    .get()
-                    .selected_row()
-                    .unwrap()
-                    .downcast::<DeviceActionRow>()
-                    .unwrap();
-                let address = current_device.get_bluer_address();
-
-                let adapter_name = OVERSKRIDE_PROPS.lock().unwrap().current_adapter.clone();
-
-                let (name, address, manufacturer, device_type, distance, services_list) =
-                    if let Ok(info) = device::get_more_info(address, adapter_name).await {
-                        info
-                    } else {
-                        return;
-                    };
-
-                message.initialize_from_info(
-                    name,
-                    address,
-                    manufacturer,
-                    device_type,
-                    distance,
-                    services_list,
-                );
-
-                message.set_transient_for(Some(&self_clone7));
-                message.set_modal(true);
-
-                message.set_visible(true);
-            }
-            ));
-        });
-
         // set the hide unknown devices boolean
         let hide_unknowns_switch_row = self.imp().hide_unknowns_switch_row.get();
         let sender14 = sender.clone();
@@ -1919,6 +1963,70 @@ impl OverskrideWindow {
     }
 
     /// on app exit, save the current settings
+        fn show_pending_service_authorization_if_open(&self, address: bluer::Address) {
+        let pending_request = self.imp().pending_service_authorization.borrow().clone();
+        let Some((pending_address, pending_adapter_name, service_name)) = pending_request else {
+            return;
+        };
+        let page_shows_requesting_device = pending_address == address
+            && OVERSKRIDE_PROPS.lock().unwrap().address == address
+            && OVERSKRIDE_PROPS.lock().unwrap().current_adapter == pending_adapter_name;
+        if page_shows_requesting_device {
+            self.imp().pairing_timeline.get().show_service_authorization_request(&service_name, &crate::radios::describe_radio(&pending_adapter_name));
+        }
+    }
+
+    fn open_device_page(&self, address: bluer::Address, adapter_name: &str) {
+        if OVERSKRIDE_PROPS.lock().unwrap().current_adapter != adapter_name {
+            self.switch_radio(adapter_name, Some(address));
+            return;
+        }
+
+        let main_listbox = self.imp().main_listbox.get();
+        let mut listbox_index = 0;
+        while let Some(device_row) = main_listbox.row_at_index(listbox_index) {
+            if let Ok(action_row) = device_row.clone().downcast::<DeviceActionRow>() {
+                if action_row.get_bluer_address() == address {
+                    main_listbox.select_row(Some(&action_row));
+                    action_row.emit_activate();
+                    return;
+                }
+            }
+            listbox_index += 1;
+        }
+    }
+
+    fn update_connection_properties_visibility(&self) {
+        let has_visible_property_row = self.imp().audio_profile_expander.get().is_visible() || self.imp().send_file_row.get().is_visible();
+        self.imp().connection_properties_group.get().set_visible(has_visible_property_row);
+    }
+
+    fn switch_radio(&self, adapter_name: &str, device_to_reselect: Option<bluer::Address>) {
+        OVERSKRIDE_PROPS.lock().unwrap().current_adapter = adapter_name.to_string();
+        if let Some(settings) = self.imp().settings.get() {
+            if let Err(settings_error) = settings.set_string("current-adapter-name", adapter_name) {
+                println!("cannot save current radio: {:?}", settings_error);
+            }
+        }
+
+        let main_listbox = self.imp().main_listbox.get();
+        while let Some(device_row) = main_listbox.row_at_index(0) {
+            main_listbox.remove(&device_row);
+        }
+        unsafe {
+            DEVICES_LUT = Some(HashMap::new());
+        }
+
+        if device_to_reselect.is_none() {
+            self.imp().bluetooth_settings_row.get().emit_activate();
+        }
+        self.imp().pending_device_selection.replace(device_to_reselect);
+
+        if let Err(refresh_error) = WidgetExt::activate_action(self, "win.refresh-devices", None) {
+            println!("cannot refresh devices after switching radio: {:?}", refresh_error);
+        }
+    }
+
     fn save_settings(&self) -> Result<(), glib::BoolError> {
         let size = (
             self.size(gtk::Orientation::Horizontal),
@@ -2058,6 +2166,31 @@ impl OverskrideWindow {
     }
 }
 
+fn spawn_device_activation(sender: Sender<Message>) {
+    let address = OVERSKRIDE_PROPS.lock().unwrap().address;
+    let adapter_name = OVERSKRIDE_PROPS.lock().unwrap().current_adapter.clone();
+
+    runtime().spawn(async move {
+        if let Err(err) = device::set_device_active(address, sender.clone(), adapter_name).await {
+            let string = err.clone().message;
+            println!("error while connecting {:?}\n", err);
+
+            sender
+                .send(Message::PopupError(string, adw::ToastPriority::High))
+                .await.expect("cannot send message");
+            sender
+                .send(Message::SwitchActive(false, address, true))
+                .await.expect("cannot send message");
+            sender
+                .send(Message::SwitchActiveSpinner(false))
+                .await.expect("cannot send message");
+            sender
+                .send(Message::SwitchSendFileActive(false))
+                .await.expect("cannot send message");
+        }
+    });
+}
+
 /// Creates a new [DeviceActionRow](DeviceActionRow) from a device, includes all needed info in the row
 #[tokio::main]
 async fn add_child_row(device: bluer::Device) -> bluer::Result<DeviceActionRow> {
@@ -2073,8 +2206,8 @@ async fn add_child_row(device: bluer::Device) -> bluer::Result<DeviceActionRow> 
     let active = device.is_connected().await?;
     child_row.set_connected(active);
 
-    let trusted = device.is_trusted().await?;
-    child_row.set_row_trusted(trusted);
+    let stages = read_pairing_stages(&device).await?;
+    child_row.set_pairing_progress(&stages);
 
     // set the address of this device
     child_row.set_bluer_address(address);
