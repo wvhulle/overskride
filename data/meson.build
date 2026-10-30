@@ -29,6 +29,8 @@ install_data('io.github.kaii_lb.Overskride.gschema.xml',
   install_dir: join_paths(get_option('datadir'), 'glib-2.0/schemas')
 )
 
+gnome.compile_schemas(build_by_default: true)
+
 compile_schemas = find_program('glib-compile-schemas', required: false)
 if compile_schemas.found()
   test('Validate schema file',
