@@ -16,7 +16,8 @@ pub struct OverskrideProperties {
     pub pin_code: String,
     pub pass_key: u32,
     pub store_folder: String,
-    pub confirm_authorization: bool
+    pub confirm_authorization: bool,
+    pub trust_after_authorization: bool
 }
 
 impl OverskrideProperties {
@@ -36,7 +37,8 @@ impl OverskrideProperties {
             pin_code: empty_string.to_string(),
             pass_key: 0,
             store_folder: empty_string,
-            confirm_authorization: false
+            confirm_authorization: false,
+            trust_after_authorization: false
         }
     }
 }

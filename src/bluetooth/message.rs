@@ -1,11 +1,14 @@
 use std::collections::HashMap;
 
+use crate::pairing_stages::PairingStages;
+use crate::radios::RadioDescription;
+
 pub enum Message {
-    #[allow(dead_code)]
-    /// Changes the trusted switch's active to `bool`
-    SwitchTrusted(bool),
-    /// Changes the blocked switch's active to `bool`
-    SwitchBlocked(bool),
+    SwitchPairingStages(bluer::Address, PairingStages),
+    SwitchScanning(bool),
+    PopulateRadios(Vec<RadioDescription>),
+            ExpireServiceAuthorization(bluer::Address),
+    SwitchDeviceDetails(bluer::Address, String, String, String, String, Vec<String>),
     /// Changes the connected switch's active to `bool` if the `is_current` is true, and sets the corresponding device action row's connected state
     SwitchActive(bool, bluer::Address, bool),
     /// Changes the connected switch's spinner spinning state to `bool`

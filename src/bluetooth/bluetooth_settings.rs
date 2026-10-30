@@ -113,7 +113,8 @@ pub async fn populate_adapter_expander() -> bluer::Result<HashMap<String, String
         
        	let alias = adapter.alias().await?;
         
-        alias_name_hashmap.insert(alias.clone().to_string(), name.clone().to_string());
+        let radio_label = format!("{} — {}", alias, crate::radios::describe_radio(&name));
+        alias_name_hashmap.insert(radio_label, name.clone().to_string());
         //println!("adapter alias is: {}", alias)
     }
 

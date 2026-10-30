@@ -1,13 +1,71 @@
 use async_channel::Sender;
 use bluer::{AdapterEvent, AdapterProperty, DeviceEvent, DeviceProperty};
-use futures::{pin_mut, stream::SelectAll, StreamExt};
+use futures::{pin_mut, stream, stream::SelectAll, Stream, StreamExt};
+use std::pin::Pin;
+use std::sync::OnceLock;
 use tokio_util::sync::CancellationToken;
 use uuid::uuid;
 
 use crate::{message::Message, window::{DEVICES_LUT}, agent::wait_for_dialog_exit, audio_profiles::AudioProfiles, battery::CANCEL_BATTERY_CHECK, services};
 use crate::window::OVERSKRIDE_PROPS;
 
+use crate::pairing_stages::{read_pairing_stages, send_current_pairing_stages, send_pairing_stages, ConnectionPolicy, PairingStep};
+use crate::radios::list_radios;
+
 static mut CANCELLATION_TOKEN: Option<CancellationToken> = None;
+
+const DEVICE_SCAN_DURATION: std::time::Duration = std::time::Duration::from_secs(60);
+
+type DeviceScanChannel = (async_channel::Sender<bool>, async_channel::Receiver<bool>);
+type DiscoveryEventStream = Pin<Box<dyn Stream<Item = AdapterEvent> + Send>>;
+
+fn device_scan_channel() -> &'static DeviceScanChannel {
+    static DEVICE_SCAN_REQUESTS: OnceLock<DeviceScanChannel> = OnceLock::new();
+    DEVICE_SCAN_REQUESTS.get_or_init(async_channel::unbounded)
+}
+
+pub fn request_device_scan(scan_enabled: bool) {
+    let _ = device_scan_channel().0.try_send(scan_enabled);
+}
+
+async fn next_discovery_event(discovery_events: &mut Option<DiscoveryEventStream>) -> Option<AdapterEvent> {
+    match discovery_events {
+        Some(discovery_stream) => discovery_stream.next().await,
+        None => std::future::pending().await,
+    }
+}
+
+async fn pair_trust_and_connect(device: &bluer::Device, sender: &Sender<Message>) -> bluer::Result<()> {
+    let stages_before_pairing = read_pairing_stages(device).await?;
+    send_pairing_stages(device, stages_before_pairing.clone().with_running_step(PairingStep::Pairing), sender).await;
+
+    if let Err(pairing_error) = device.pair().await {
+        let stages_after_failure = read_pairing_stages(device).await.unwrap_or(stages_before_pairing);
+        send_pairing_stages(device, stages_after_failure.with_failed_step(PairingStep::Pairing, pairing_error.message.clone()), sender).await;
+        return Err(pairing_error);
+    }
+    request_device_scan(false);
+
+    let stages_after_pairing = read_pairing_stages(device).await?;
+    if !stages_after_pairing.bonded {
+        let missing_bond_reason = "Pairing finished, but BlueZ did not store a link key. Put the device in pairing mode and press Pair Again.".to_string();
+        send_pairing_stages(device, stages_after_pairing.with_failed_step(PairingStep::Bonding, missing_bond_reason.clone()), sender).await;
+        return Err(bluer::Error { kind: bluer::ErrorKind::Failed, message: missing_bond_reason });
+    }
+
+    send_pairing_stages(device, stages_after_pairing.with_running_step(PairingStep::Authorization), sender).await;
+    device.set_trusted(true).await?;
+
+    send_pairing_stages(device, read_pairing_stages(device).await?.with_running_step(PairingStep::Connection), sender).await;
+    if device.connect().await.is_err() {
+        if let Err(connection_error) = device.connect().await {
+            send_pairing_stages(device, read_pairing_stages(device).await?.with_failed_step(PairingStep::Connection, connection_error.message.clone()), sender).await;
+            return Err(connection_error);
+        }
+    }
+
+    Ok(())
+}
 
 /// Set the associated with `address` device's state, between connected and not
 /// connected depending on what was already the case.
@@ -27,14 +85,7 @@ pub async fn set_device_active(address: bluer::Address, sender: Sender<Message>,
         device.disconnect().await?;
     }
     else if !device.is_paired().await? {
-		// let agent = register_agent(&current_session, true, true).await?;
-		// println!("agent is: {:?}\n", agent);
-
-   		device.pair().await?;
-
-   		device.connect().await?;
-        device.connect().await?;
-		// drop(agent);
+        pair_trust_and_connect(&device, &sender).await?;
    	}
    	else {
         device.connect().await?;
@@ -44,6 +95,7 @@ pub async fn set_device_active(address: bluer::Address, sender: Sender<Message>,
 
 
     println!("set state {} for device {}\n", updated_state, device.address());
+    send_current_pairing_stages(&device, &sender).await?;
 	sender.send(Message::SwitchActiveSpinner(false)).await.expect("cannot set spinner to show.");
     sender.send(Message::SwitchActive(updated_state, address, true)).await.expect("cannot send message");
 	sender.send(Message::InvalidateSort()).await.expect("cannot set device name.");
@@ -96,34 +148,55 @@ pub async fn set_device_active(address: bluer::Address, sender: Sender<Message>,
     Ok(())
 }
 
-/// Set's the device's blocked state based on what was already the case.
-/// Basically stops all connections and requests if the device is blocked.
-pub async fn set_device_blocked(address: bluer::Address, sender: Sender<Message>, adapter_name: String)  -> bluer::Result<()> {
-    let adapter = bluer::Session::new().await?.adapter(adapter_name.as_str())?;
-	let device = adapter.device(address)?;
-
-    let blocked = !device.is_blocked().await?;
-
-    device.set_blocked(blocked).await?;
-
-	sender.send(Message::SwitchBlocked(blocked)).await.expect("cannot set device blocked.");
-
-    // println!("setting blocked {} for device {}", new_blocked, device.address());
-    Ok(())
-}
-
-/// Sets the device's trusted state depending on what was already the case.
-/// If trusted, connections to the device won't need pin/passkey every time.
-pub async fn set_device_trusted(address: bluer::Address, sender: Sender<Message>, adapter_name: String) -> bluer::Result<()> {
+pub async fn set_connection_policy(address: bluer::Address, connection_policy: ConnectionPolicy, sender: Sender<Message>, adapter_name: String) -> bluer::Result<()> {
     let adapter = bluer::Session::new().await?.adapter(adapter_name.as_str())?;
     let device = adapter.device(address)?;
 
-    let trusted = !device.is_trusted().await?;
+    let policy_result = match connection_policy {
+        ConnectionPolicy::Blocked => device.set_blocked(true).await,
+        ConnectionPolicy::AskEachTime => {
+            device.set_blocked(false).await?;
+            device.set_trusted(false).await
+        }
+        ConnectionPolicy::Trusted if !read_pairing_stages(&device).await?.bonded => Err(bluer::Error {
+            kind: bluer::ErrorKind::Failed,
+            message: "Trust can't be saved: this device is paired but not bonded (no stored link key). Use Pair Again.".to_string(),
+        }),
+        ConnectionPolicy::Trusted => {
+            device.set_blocked(false).await?;
+            device.set_trusted(true).await
+        }
+    };
 
-    device.set_trusted(trusted).await?;
+    send_current_pairing_stages(&device, &sender).await?;
+    policy_result
+}
 
-    sender.send(Message::SwitchTrusted(trusted)).await.expect("cannot set device trusted.");
-    // println!("setting trusted {} for device {}", new_trusted, device.address());
+pub async fn pair_device_again(address: bluer::Address, sender: Sender<Message>, adapter_name: String) -> bluer::Result<()> {
+    let adapter = bluer::Session::new().await?.adapter(adapter_name.as_str())?;
+    let device = adapter.device(address)?;
+
+    let device_name = device.alias().await?;
+    let is_gamepad = read_pairing_stages(&device).await?.is_gamepad;
+
+    adapter.remove_device(address).await?;
+    unsafe {
+        let mut devices_lut = DEVICES_LUT.clone().unwrap();
+        devices_lut.remove(&address);
+        DEVICES_LUT = Some(devices_lut);
+    }
+    sender.send(Message::RemoveDevice(device_name.clone(), address)).await.expect("can't send message");
+    sender.send(Message::UpdateListBoxImage()).await.expect("can't send message");
+
+    request_device_scan(true);
+
+    let pairing_mode_hint = if is_gamepad {
+        "hold PS + Create until the light flashes"
+    } else {
+        "put it in pairing mode"
+    };
+    let pair_again_hint = format!("Forgot {}. Now {}; it reappears in the list, then press Pair.", device_name, pairing_mode_hint);
+    sender.send(Message::PopupError(pair_again_hint, adw::ToastPriority::High)).await.expect("can't send message");
 
     Ok(())
 }
@@ -174,8 +247,6 @@ pub async fn get_device_properties(address: bluer::Address, sender: Sender<Messa
 	let device = adapter.device(address)?;
 
     let is_active = device.is_connected().await?;
-    let is_blocked = device.is_blocked().await?;
-    let is_trusted = device.is_trusted().await?;
     let alias = device.alias().await?;
     let icon_name = match device.icon().await? {
         Some(icon) => {
@@ -188,8 +259,11 @@ pub async fn get_device_properties(address: bluer::Address, sender: Sender<Messa
 
     sender.send(Message::SwitchPage(Some(alias), Some(icon_name))).await.expect("cannot set device alias and icon in page.");
     sender.send(Message::SwitchActive(is_active, address, true)).await.expect("cannot set device active in page.");
-    sender.send(Message::SwitchBlocked(is_blocked)).await.expect("cannot set device blocked in page.");
-    sender.send(Message::SwitchTrusted(is_trusted)).await.expect("cannot set device trusted in page.");
+    
+        send_current_pairing_stages(&device, &sender).await?;
+    if let Ok((_, device_address, manufacturer, device_type, distance, services_list)) = get_more_info(address, adapter_name.clone()).await {
+        sender.send(Message::SwitchDeviceDetails(address, device_address, manufacturer, device_type, distance, services_list)).await.expect("cannot send message");
+    }
    	sender.send(Message::SetNameValid(true)).await.expect("cannot send message");
     sender.send(Message::SwitchAudioProfileExpanded(false)).await.expect("cannot send message");
     sender.send(Message::SwitchAudioProfilesList(false)).await.expect("cannot send message");
@@ -266,8 +340,11 @@ pub async fn remove_device(address: bluer::Address, sender: Sender<Message>, ada
             }
         }
 
-        sender.send(Message::RemoveDevice(name, address)).await.expect("can't send message");
+        sender.send(Message::RemoveDevice(name.clone(), address)).await.expect("can't send message");
         sender.send(Message::UpdateListBoxImage()).await.expect("can't send message");
+
+        let removed_device_hint = format!("Removed {}. To pair it again, put it in pairing mode and press Scan.", name);
+        sender.send(Message::PopupError(removed_device_hint, adw::ToastPriority::Normal)).await.expect("can't send message");
     }
 
     Ok(())
@@ -299,8 +376,18 @@ pub async fn get_devices_continuous(sender: Sender<Message>, adapter_name: Strin
     };
     adapter.set_discovery_filter(filter).await?;
 
-    let device_events = adapter.discover_devices().await?;
+    let known_device_events = stream::iter(
+        adapter.device_addresses().await?.into_iter().map(AdapterEvent::DeviceAdded),
+    );
+    let device_events = known_device_events.chain(adapter.events().await?);
     pin_mut!(device_events);
+
+    let scan_requests = device_scan_channel().1.clone();
+    let mut discovery_events: Option<DiscoveryEventStream> = None;
+    let scan_deadline = tokio::time::sleep(DEVICE_SCAN_DURATION);
+    pin_mut!(scan_deadline);
+    sender.send(Message::SwitchScanning(false)).await.expect("cannot send message");
+    sender.send(Message::PopulateRadios(list_radios(&session).await?)).await.expect("cannot send message");
 
     let mut all_change_events = SelectAll::new();
 
@@ -313,6 +400,21 @@ pub async fn get_devices_continuous(sender: Sender<Message>, adapter_name: Strin
 
     while adapter.is_powered().await? {
         tokio::select! {
+            Ok(scan_enabled) = scan_requests.recv() => {
+                if scan_enabled && discovery_events.is_none() {
+                    discovery_events = Some(Box::pin(adapter.discover_devices().await?));
+                    scan_deadline.as_mut().reset(tokio::time::Instant::now() + DEVICE_SCAN_DURATION);
+                }
+                else if !scan_enabled {
+                    discovery_events = None;
+                }
+                sender_clone.send(Message::SwitchScanning(discovery_events.is_some())).await.expect("cannot send message");
+            }
+            Some(_) = next_discovery_event(&mut discovery_events) => {}
+            _ = &mut scan_deadline, if discovery_events.is_some() => {
+                discovery_events = None;
+                sender_clone.send(Message::SwitchScanning(false)).await.expect("cannot send message");
+            }
             Some(device_event) = device_events.next() => {
                 match device_event {
                     AdapterEvent::DeviceAdded(addr) => {
@@ -391,23 +493,16 @@ pub async fn get_devices_continuous(sender: Sender<Message>, adapter_name: Strin
                     DeviceProperty::Connected(connected) => {
                         tokio::time::sleep(std::time::Duration::from_secs_f32(0.5)).await;
                         sender_clone.send(Message::SwitchActive(connected, addr, addr == current_address)).await.expect("cannot send message");
-                    },
-                    DeviceProperty::Trusted(trusted) => {
-                        let current_address = OVERSKRIDE_PROPS.lock().unwrap().address;
-
-                        if addr == current_address {
-                            tokio::time::sleep(std::time::Duration::from_secs_f32(0.5)).await;
-                            sender_clone.send(Message::SwitchTrusted(trusted)).await.expect("cannot send message");
+                        if let Ok(changed_device) = adapter.device(addr) {
+                            let _ = send_current_pairing_stages(&changed_device, &sender_clone).await;
                         }
                     },
-                    DeviceProperty::Blocked(blocked) => {
-                        let current_address = OVERSKRIDE_PROPS.lock().unwrap().address;
-
-                        if addr == current_address {
-                            tokio::time::sleep(std::time::Duration::from_secs_f32(0.5)).await;
-                            sender_clone.send(Message::SwitchBlocked(blocked)).await.expect("cannot send message");
+                    DeviceProperty::Paired(_) | DeviceProperty::Bonded(_) | DeviceProperty::Trusted(_) | DeviceProperty::Blocked(_) => {
+                        if let Ok(changed_device) = adapter.device(addr) {
+                            let _ = send_current_pairing_stages(&changed_device, &sender_clone).await;
                         }
                     },
+                    
                     DeviceProperty::Alias(name) => {
                         let current_address = OVERSKRIDE_PROPS.lock().unwrap().address;
 
@@ -512,7 +607,7 @@ pub async fn get_more_info(address: bluer::Address, adapter_name: String) -> blu
 		// }
     }.await?;
 
-    for uuid in device.uuids().await?.unwrap() {
+        for uuid in device.uuids().await?.unwrap_or_default() {
         let service = services::get_name_from_service(uuid).unwrap_or("".to_string());
 
         if !service.is_empty() {

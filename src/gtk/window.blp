@@ -43,6 +43,22 @@ template $OverskrideWindow: Adw.ApplicationWindow {
             title: "Overskride";
           };
 
+          [end]
+          ToggleButton scan_toggle_button {
+            tooltip-text: "Search for new devices for 60 seconds";
+            styles ["flat"]
+
+            child: Box {
+              spacing: 6;
+
+              Spinner scan_spinner {}
+
+              Label {
+                label: "Scan";
+              }
+            };
+          }
+
           [start]
           MenuButton show_popup_button {
             always-show-arrow: false;
@@ -78,9 +94,20 @@ template $OverskrideWindow: Adw.ApplicationWindow {
               }
             }
 
+            Adw.PreferencesGroup radio_group {
+              title: "Radio";
+              description: "Bonds and trust are stored per radio";
+              visible: false;
+
+              Adw.ComboRow radio_combo_row {
+                title: "Active Radio";
+                use-subtitle: true;
+              }
+            }
+
             Adw.PreferencesGroup {
               title: "Devices";
-              description: "All the devices you've connected to";
+              description: "Known to this radio. Press Scan to find new ones.";
 
               Box listbox_image_box {
                 height-request: 250;
@@ -108,7 +135,7 @@ template $OverskrideWindow: Adw.ApplicationWindow {
                     }
 
                     Label {
-                      label: "No devices in range";
+                      label: "No known devices — press Scan";
                       opacity: 0.4;
                     }                    
                   };
@@ -220,12 +247,15 @@ template $OverskrideWindow: Adw.ApplicationWindow {
                   }
                 }
 
-                  Adw.PreferencesGroup {
+                  $PairingTimeline pairing_timeline {}
+
+                  Adw.PreferencesGroup connection_properties_group {
                     title: "Connection Properties";
                     description: "Bluetooth connection information about this device.";
 
                     $ConnectedSwitchRow connected_switch_row {
                       title: "Connected";
+                      visible: false;
                     }
                     Adw.ExpanderRow audio_profile_expander {
                       title: "Audio Profile";
@@ -258,8 +288,8 @@ template $OverskrideWindow: Adw.ApplicationWindow {
                   }
 
                   Adw.PreferencesGroup {
-                    title: "Device Properties";
-                    description: "Information about this bluetooth device.";
+                    title: "Name";
+                    description: "Stored on this computer for each radio, together with the bond.";
 
                     Adw.EntryRow device_name_entry {
                       title: "Device Name";
@@ -267,41 +297,39 @@ template $OverskrideWindow: Adw.ApplicationWindow {
                       input-purpose: alpha;
                       show-apply-button: true;
                     }
-                    Adw.SwitchRow trusted_row {
-                      title: "Trusted";
-                    }
-                    Adw.SwitchRow blocked_row {
-                      title: "Blocked";
-                    }
+                    
+                    
                   }
 
                   Adw.PreferencesGroup {
-                    title: "Status Information";
-                    description: "The current state of this device";
+                    title: "Details";
 
-                    $BatteryLevelIndicator battery_level_indicator {
-                      styles ["linked"]
+                    Adw.ActionRow address_detail_row {
+                      title: "Address";
+                      subtitle-selectable: true;
+                      styles ["property"]
                     }
 
-                    Adw.ActionRow more_info_row {
-                      title: "More Info";
-                      activatable: true; 
-                      // sensitive: false;
-
-                      [suffix]
-                      Box {
-                        Image {
-                          // styles ["dim-label"]
-                          icon-name: "right-symbolic";
-                        }
-                      }
+                    Adw.ActionRow manufacturer_detail_row {
+                      title: "Manufacturer";
+                      subtitle-selectable: true;
+                      styles ["property"]
                     }
-                  }
 
-                  Adw.PreferencesGroup {
-                    Button remove_device_button {
-                      styles ["destructive-action"]
-                      label: "Remove Device";
+                    Adw.ActionRow type_detail_row {
+                      title: "Type";
+                      subtitle-selectable: true;
+                      styles ["property"]
+                    }
+
+                    Adw.ActionRow distance_detail_row {
+                      title: "Distance";
+                      tooltip-text: "Estimated from signal strength, only known while scanning";
+                      styles ["property"]
+                    }
+
+                    Adw.ExpanderRow services_detail_row {
+                      title: "Services";
                     }
                   }
                 }
