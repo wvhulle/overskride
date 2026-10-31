@@ -689,8 +689,9 @@ fn kernel_input_rows(kernel_input_devices: &KernelInputDevices) -> Vec<PropertyR
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeSet, HashMap};
 
+    use overskride_bluetooth::device_guess::DeviceAppearance;
     use overskride_bluetooth::device_snapshot::{Manufacturer, TransmitPower};
     use overskride_bluetooth::session::DeviceLocation;
 
@@ -719,6 +720,9 @@ mod tests {
             device_class: DeviceClass::Unknown,
             services: BTreeSet::new(),
             manufacturer: Manufacturer::Unknown,
+            manufacturer_data: HashMap::new(),
+            service_data: HashMap::new(),
+            appearance: DeviceAppearance::Unknown,
             kernel_input: KernelInputBinding::Absent,
         }
     }

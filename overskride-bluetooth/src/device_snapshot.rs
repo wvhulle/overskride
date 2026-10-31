@@ -4,6 +4,7 @@ use std::str::FromStr;
 use bluer::DeviceProperty;
 
 use crate::bluetooth_error::BluetoothError;
+use crate::device_guess::{DeviceAppearance, DeviceGuess, guess_device_kind};
 use crate::kernel_input_devices::{KernelInputBinding, find_kernel_input_devices};
 use crate::service_names::describe_service;
 use crate::session::DeviceLocation;
@@ -70,6 +71,9 @@ pub struct DeviceSnapshot {
     pub device_class: DeviceClass,
     pub services: BTreeSet<bluer::Uuid>,
     pub manufacturer: Manufacturer,
+    pub manufacturer_data: HashMap<u16, Vec<u8>>,
+    pub service_data: HashMap<bluer::Uuid, Vec<u8>>,
+    pub appearance: DeviceAppearance,
     pub kernel_input: KernelInputBinding,
 }
 
@@ -106,6 +110,7 @@ impl DeviceSnapshot {
     ) -> Result<Self, BluetoothError> {
         let paired = device.is_paired().await?;
         let connected = device.is_connected().await?;
+        let manufacturer_data = device.manufacturer_data().await?.unwrap_or_default();
         Ok(Self {
             alias: device.alias().await?,
             icon_name: device.icon().await?.unwrap_or_default(),
@@ -135,9 +140,13 @@ impl DeviceSnapshot {
                 .unwrap_or_default()
                 .into_iter()
                 .collect(),
-            manufacturer: identify_manufacturer(
-                &device.manufacturer_data().await?.unwrap_or_default(),
-            ),
+            manufacturer: identify_manufacturer(&manufacturer_data),
+            manufacturer_data,
+            service_data: device.service_data().await?.unwrap_or_default(),
+            appearance: device
+                .appearance()
+                .await?
+                .map_or(DeviceAppearance::Unknown, DeviceAppearance::Reported),
             kernel_input: kernel_input_for(location.address, connected),
             location,
         })
@@ -169,6 +178,11 @@ impl DeviceSnapshot {
             DeviceProperty::Uuids(services) => self.services = services.into_iter().collect(),
             DeviceProperty::ManufacturerData(manufacturer_data) => {
                 self.manufacturer = identify_manufacturer(&manufacturer_data);
+                self.manufacturer_data = manufacturer_data;
+            }
+            DeviceProperty::ServiceData(service_data) => self.service_data = service_data,
+            DeviceProperty::Appearance(appearance_value) => {
+                self.appearance = DeviceAppearance::Reported(appearance_value);
             }
             _ => return PropertyRelevance::Ignored,
         }
@@ -187,12 +201,27 @@ impl DeviceSnapshot {
         !alias_looks_like_address(&self.alias)
     }
 
+    pub fn device_guess(&self) -> Option<DeviceGuess> {
+        guess_device_kind(
+            &self.manufacturer_data,
+            &self.service_data,
+            &self.services,
+            self.appearance,
+        )
+    }
+
     pub fn display_name(&self) -> &str {
         if self.has_meaningful_name() {
             &self.alias
         } else {
-            UNKNOWN_DEVICE_NAME
+            self.device_guess()
+                .map_or(UNKNOWN_DEVICE_NAME, |device_guess| device_guess.label)
         }
+    }
+
+    pub fn short_address(&self) -> String {
+        let address_octets = self.address().0;
+        format!("{:02X}:{:02X}", address_octets[4], address_octets[5])
     }
 
     pub fn battery(&self) -> BatteryReading {
@@ -223,7 +252,10 @@ impl DeviceSnapshot {
     pub fn service_names(&self) -> Vec<String> {
         self.services
             .iter()
+            .chain(self.service_data.keys())
             .copied()
+            .collect::<BTreeSet<_>>()
+            .into_iter()
             .filter_map(describe_service)
             .collect()
     }
@@ -273,6 +305,9 @@ pub(crate) mod tests {
             device_class: DeviceClass::Unknown,
             services: BTreeSet::new(),
             manufacturer: Manufacturer::Unknown,
+            manufacturer_data: HashMap::new(),
+            service_data: HashMap::new(),
+            appearance: DeviceAppearance::Unknown,
             kernel_input: KernelInputBinding::Absent,
         }
     }
@@ -283,6 +318,20 @@ pub(crate) mod tests {
         snapshot.alias = "10-20-30-40-50-60".to_string();
         assert_eq!(snapshot.display_name(), UNKNOWN_DEVICE_NAME);
         assert!(!snapshot.has_meaningful_name());
+    }
+
+    #[test]
+    fn nameless_device_is_named_after_its_guess() {
+        let mut snapshot = sample_snapshot();
+        snapshot.alias = "10-20-30-40-50-60".to_string();
+        snapshot.manufacturer_data = HashMap::from([(0x004C, vec![0x07, 0x19])]);
+        assert_eq!(snapshot.display_name(), "Apple AirPods or Beats");
+        assert!(!snapshot.has_meaningful_name());
+    }
+
+    #[test]
+    fn short_address_shows_last_two_octets() {
+        assert_eq!(sample_snapshot().short_address(), "50:60");
     }
 
     #[test]

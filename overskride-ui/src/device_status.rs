@@ -26,9 +26,48 @@ pub fn signal_icon_name(signal_strength: SignalStrength) -> &'static str {
 
 pub fn device_icon_name(snapshot: &DeviceSnapshot) -> &str {
     if snapshot.icon_name.is_empty() {
-        "bluetooth-symbolic"
+        snapshot
+            .device_guess()
+            .map_or("bluetooth-symbolic", |device_guess| device_guess.icon_name)
     } else {
         &snapshot.icon_name
+    }
+}
+
+pub fn symbolic_device_icon_name(snapshot: &DeviceSnapshot) -> String {
+    let icon_name = device_icon_name(snapshot);
+    if icon_name.ends_with("-symbolic") {
+        icon_name.to_string()
+    } else {
+        format!("{icon_name}-symbolic")
+    }
+}
+
+pub fn describe_device_type(snapshot: &DeviceSnapshot) -> &str {
+    if !snapshot.icon_name.is_empty() {
+        &snapshot.icon_name
+    } else {
+        snapshot
+            .device_guess()
+            .map_or("Unknown", |device_guess| device_guess.label)
+    }
+}
+
+pub fn type_guess_evidence(snapshot: &DeviceSnapshot) -> Option<&'static str> {
+    if snapshot.icon_name.is_empty() {
+        snapshot
+            .device_guess()
+            .map(|device_guess| device_guess.evidence)
+    } else {
+        None
+    }
+}
+
+pub fn describe_address_type(snapshot: &DeviceSnapshot) -> &'static str {
+    if snapshot.address_type == "random" {
+        "Random, may change every few minutes"
+    } else {
+        "Public, fixed by the manufacturer"
     }
 }
 

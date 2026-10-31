@@ -23,7 +23,9 @@ use relm4::gtk;
 use relm4::gtk::{gio, glib};
 use relm4::prelude::*;
 
-use crate::device_status::device_icon_name;
+use crate::device_status::{
+    describe_address_type, describe_device_type, device_icon_name, type_guess_evidence,
+};
 use crate::pairing_presentation::{
     ActivePairing, StepButtonAction, TimelineAction, TimelineInputs,
 };
@@ -415,6 +417,12 @@ impl Component for DevicePage {
                     },
                     #[template]
                     PropertyRow {
+                        set_title: "Address Type",
+                        #[watch]
+                        set_subtitle: describe_address_type(&model.snapshot),
+                    },
+                    #[template]
+                    PropertyRow {
                         set_title: "Manufacturer",
                         #[watch]
                         set_subtitle: &glib::markup_escape_text(describe_manufacturer(&model.snapshot.manufacturer)),
@@ -423,7 +431,15 @@ impl Component for DevicePage {
                     PropertyRow {
                         set_title: "Type",
                         #[watch]
-                        set_subtitle: &glib::markup_escape_text(&model.snapshot.icon_name),
+                        set_subtitle: &glib::markup_escape_text(describe_device_type(&model.snapshot)),
+                    },
+                    #[template]
+                    PropertyRow {
+                        set_title: "Type Guessed From",
+                        #[watch]
+                        set_visible: type_guess_evidence(&model.snapshot).is_some(),
+                        #[watch]
+                        set_subtitle: &glib::markup_escape_text(type_guess_evidence(&model.snapshot).unwrap_or_default()),
                     },
                     #[template]
                     PropertyRow {
