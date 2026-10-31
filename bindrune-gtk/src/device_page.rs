@@ -3,8 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures::StreamExt;
-use overskride_bluetooth::{
+use bindrune_bluez::{
     audio_profiles::{
         ActiveAudioProfile, AudioProfiles, read_audio_profiles, set_audio_profile, switch_audio_off,
     },
@@ -23,6 +22,7 @@ use overskride_bluetooth::{
     report_timing::{ReportTimingSample, report_timing},
     session::BluetoothSession,
 };
+use futures::StreamExt;
 use relm4::{
     adw,
     adw::prelude::*,
@@ -70,7 +70,7 @@ const LINK_TICK: Duration = Duration::from_secs(1);
 pub struct DevicePageInit {
     pub session: BluetoothSession,
     pub obex: ObexAvailability,
-    pub adapter_address: overskride_bluetooth::Address,
+    pub adapter_address: bindrune_bluez::Address,
     pub accepts_files: bool,
     pub received_files_folder: PathBuf,
     pub snapshot: DeviceSnapshot,
@@ -80,7 +80,7 @@ pub struct DevicePageInit {
 pub struct DevicePage {
     session: BluetoothSession,
     obex: ObexAvailability,
-    adapter_address: overskride_bluetooth::Address,
+    adapter_address: bindrune_bluez::Address,
     accepts_files: bool,
     received_files_folder: PathBuf,
     snapshot: DeviceSnapshot,
@@ -119,7 +119,7 @@ pub enum DevicePageOutput {
         rescan: bool,
     },
     AutoAcceptChosen {
-        address: overskride_bluetooth::Address,
+        address: bindrune_bluez::Address,
         accepts_files: bool,
     },
     ShowRadio(String),
@@ -203,7 +203,7 @@ fn pairing_mode_hint(snapshot: &DeviceSnapshot) -> &'static str {
 }
 
 impl DevicePage {
-    pub fn shown_address(&self) -> overskride_bluetooth::Address {
+    pub fn shown_address(&self) -> bindrune_bluez::Address {
         self.snapshot.address()
     }
 

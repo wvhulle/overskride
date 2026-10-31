@@ -1,4 +1,4 @@
-use overskride_bluetooth::pairing_steps::ConnectionPolicy;
+use bindrune_bluez::pairing_steps::ConnectionPolicy;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent, adw, adw::prelude::*, gtk, gtk::glib,
 };

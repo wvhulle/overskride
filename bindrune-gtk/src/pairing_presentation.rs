@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use overskride_bluetooth::{
+use bindrune_bluez::{
     connection_drops::ConnectionHistory,
     device_snapshot::{
         BatteryReading, DeviceClass, DeviceSnapshot, DistanceEstimate, SignalStrength,
@@ -954,7 +954,7 @@ fn kernel_input_rows(kernel_input_devices: &KernelInputDevices) -> Vec<PropertyR
 mod tests {
     use std::collections::{BTreeSet, HashMap};
 
-    use overskride_bluetooth::{
+    use bindrune_bluez::{
         device_guess::DeviceAppearance,
         device_snapshot::{Manufacturer, TransmitPower},
         pairing_failure::BondingFailure,
@@ -967,7 +967,7 @@ mod tests {
         DeviceSnapshot {
             location: DeviceLocation {
                 adapter_name: "hci0".to_string(),
-                address: overskride_bluetooth::Address::new([1, 2, 3, 4, 5, 6]),
+                address: bindrune_bluez::Address::new([1, 2, 3, 4, 5, 6]),
             },
             alias: "DualSense".to_string(),
             icon_name: "input-gaming".to_string(),
@@ -1038,7 +1038,7 @@ mod tests {
 
     #[test]
     fn repeated_signal_losses_mark_the_link_unstable() {
-        use overskride_bluetooth::connection_drops::{ConnectionDrop, DisconnectReason};
+        use bindrune_bluez::connection_drops::{ConnectionDrop, DisconnectReason};
         let measured_at = Instant::now();
         let mut connection_history = ConnectionHistory::default();
         [Duration::from_secs(600), Duration::from_secs(60)]
@@ -1046,7 +1046,7 @@ mod tests {
             .for_each(|drop_age| {
                 connection_history.record_drop(ConnectionDrop {
                     adapter_name: "hci0".to_string(),
-                    address: overskride_bluetooth::Address::any(),
+                    address: bindrune_bluez::Address::any(),
                     reason: DisconnectReason::SignalLost,
                     observed_at: measured_at - drop_age,
                 });
@@ -1073,7 +1073,7 @@ mod tests {
 
     #[test]
     fn long_gaps_are_shown_and_mark_the_link_unstable() {
-        use overskride_bluetooth::report_timing::ReportTiming;
+        use bindrune_bluez::report_timing::ReportTiming;
         use uom::si::f32::Frequency;
         let report_timing = ReportTiming {
             report_rate: Frequency::new::<hertz>(248.0),

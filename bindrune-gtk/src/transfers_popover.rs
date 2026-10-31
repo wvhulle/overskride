@@ -1,12 +1,12 @@
 use std::{collections::HashSet, time::Duration};
 
-use bytesize::ByteSize;
-use futures::StreamExt;
-use overskride_bluetooth::{
+use bindrune_bluez::{
     device_actions::read_device,
     obex_transfers::{IncomingTransfer, TransferHandle, TransferProgress, TransferStatus},
     session::{BluetoothSession, DeviceLocation},
 };
+use bytesize::ByteSize;
+use futures::StreamExt;
 use relm4::{
     adw,
     adw::prelude::*,
@@ -31,7 +31,7 @@ pub struct TransfersPopover {
     session: BluetoothSession,
     preferences: AppPreferences,
     adapter_name: String,
-    accepted_senders: HashSet<overskride_bluetooth::Address>,
+    accepted_senders: HashSet<bindrune_bluez::Address>,
     transfer_rows: FactoryVecDeque<TransferRow>,
 }
 

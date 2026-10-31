@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use overskride_bluetooth::device_capabilities::{CapabilityCategory, DeviceCapability};
+use bindrune_bluez::device_capabilities::{CapabilityCategory, DeviceCapability};
 use relm4::{
     RelmWidgetExt, adw,
     adw::prelude::*,
@@ -11,7 +11,7 @@ use relm4::{
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CapabilitySources {
-    pub advertised_services: BTreeSet<overskride_bluetooth::Uuid>,
+    pub advertised_services: BTreeSet<bindrune_bluez::Uuid>,
     pub made_by_apple: bool,
 }
 

@@ -1,11 +1,11 @@
-use ksni::TrayMethods;
-use overskride_bluetooth::{
+use bindrune_bluez::{
     adapter_state::{AdapterSnapshot, read_adapter},
     bluetooth_error::BluetoothError,
     obex_transfers::ObexConnection,
     radios::RadioDescription,
     session::BluetoothSession,
 };
+use ksni::TrayMethods;
 use relm4::{
     actions::{RelmAction, RelmActionGroup},
     adw,

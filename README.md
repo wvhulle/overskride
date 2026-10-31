@@ -42,7 +42,7 @@ On Nix, `nix develop` (or `direnv allow`) provides all of these.
 ## Running from the checkout
 
 ```bash
-cargo run -p overskride-ui
+cargo run -p bindrune-gtk
 ```
 
 No installation is needed: the build compiles the GSettings schema and the app uses it when no installed schema is found.

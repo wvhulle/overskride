@@ -85,7 +85,7 @@ impl AppPreferences {
         self.settings.boolean(START_AT_LOGIN_KEY)
     }
 
-    pub fn accepts_files_from(&self, sender_address: overskride_bluetooth::Address) -> bool {
+    pub fn accepts_files_from(&self, sender_address: bindrune_bluez::Address) -> bool {
         let sender_address = sender_address.to_string();
         self.settings
             .strv(AUTO_ACCEPT_SENDERS_KEY)
@@ -93,7 +93,7 @@ impl AppPreferences {
             .any(|accepted_address| accepted_address.as_str() == sender_address)
     }
 
-    pub fn allow_auto_accept(&self, sender_address: overskride_bluetooth::Address) {
+    pub fn allow_auto_accept(&self, sender_address: bindrune_bluez::Address) {
         if self.accepts_files_from(sender_address) {
             return;
         }
@@ -102,7 +102,7 @@ impl AppPreferences {
         self.store_auto_accept_addresses(&accepted_addresses);
     }
 
-    pub fn revoke_auto_accept(&self, sender_address: overskride_bluetooth::Address) {
+    pub fn revoke_auto_accept(&self, sender_address: bindrune_bluez::Address) {
         let sender_address = sender_address.to_string();
         let remaining_addresses = self
             .auto_accept_addresses()

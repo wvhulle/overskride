@@ -1,5 +1,5 @@
 [package]
-name = "overskride-bluetooth"
+name = "bindrune-bluez"
 version = "0.6.5"
 edition = "2024"
 authors = ["kaii_lb <imkaiilb@gmail.com>", "Willem Vanhulle <willemvanhulle@gmail.com>"]

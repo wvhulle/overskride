@@ -3,8 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use futures::StreamExt;
-use overskride_bluetooth::{
+use bindrune_bluez::{
     adapter_state::{AdapterSnapshot, read_adapter},
     bluetooth_error::BluetoothError,
     connection_drops::{ConnectionDrop, ConnectionHistory, connection_drops},
@@ -17,6 +16,7 @@ use overskride_bluetooth::{
     radios::RadioDescription,
     session::{BluetoothSession, DeviceLocation},
 };
+use futures::StreamExt;
 use relm4::{adw, adw::prelude::*, factory::FactoryVecDeque, gtk, prelude::*};
 
 use crate::{
@@ -67,7 +67,7 @@ enum ScanState {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AfterAdapterSwitch {
     ShowAdapter,
-    OpenDevice(overskride_bluetooth::Address),
+    OpenDevice(bindrune_bluez::Address),
     StartScan,
 }
 
@@ -77,9 +77,9 @@ pub struct MainView {
     preferences: AppPreferences,
     radios: Vec<RadioDescription>,
     adapter: AdapterSnapshot,
-    device_names: HashMap<overskride_bluetooth::Address, String>,
-    paired_tray_devices: BTreeMap<overskride_bluetooth::Address, TrayDevice>,
-    connection_histories: BTreeMap<overskride_bluetooth::Address, ConnectionHistory>,
+    device_names: HashMap<bindrune_bluez::Address, String>,
+    paired_tray_devices: BTreeMap<bindrune_bluez::Address, TrayDevice>,
+    connection_histories: BTreeMap<bindrune_bluez::Address, ConnectionHistory>,
     scan_state: ScanState,
     scan_generation: u64,
     content_page: ContentPage,
@@ -401,14 +401,14 @@ impl MainView {
         }
     }
 
-    fn shown_device_address(&self) -> Option<overskride_bluetooth::Address> {
+    fn shown_device_address(&self) -> Option<bindrune_bluez::Address> {
         match &self.content_page {
             ContentPage::Device(device_page) => Some(device_page.model().shown_address()),
             ContentPage::AppSettings | ContentPage::Adapter => None,
         }
     }
 
-    fn connection_history_of(&self, address: overskride_bluetooth::Address) -> ConnectionHistory {
+    fn connection_history_of(&self, address: bindrune_bluez::Address) -> ConnectionHistory {
         self.connection_histories
             .get(&address)
             .cloned()
@@ -417,7 +417,7 @@ impl MainView {
 
     fn update_connection_history(
         &mut self,
-        address: overskride_bluetooth::Address,
+        address: bindrune_bluez::Address,
         change_history: impl FnOnce(&mut ConnectionHistory),
     ) {
         let connection_history = self.connection_histories.entry(address).or_default();

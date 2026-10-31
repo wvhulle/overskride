@@ -43,7 +43,7 @@
             "name" : "overskride",
             "buildsystem" : "simple",
             "build-commands" : [
-                "cargo build --release --locked --package overskride-ui",
+                "cargo build --release --locked --package bindrune-gtk",
                 "make install-binary install-data PREFIX=/app"
             ],
             "sources" : [

@@ -1,4 +1,4 @@
-use overskride_bluetooth::{
+use bindrune_bluez::{
     device_snapshot::{DeviceSnapshot, SignalStrength},
     kernel_input_devices::KernelInputBinding,
     pairing_steps::{PAIRING_STEP_DEFINITIONS, is_step_applicable, is_step_done},

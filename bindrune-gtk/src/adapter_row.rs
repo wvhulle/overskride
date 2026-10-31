@@ -1,4 +1,4 @@
-use overskride_bluetooth::radios::RadioDescription;
+use bindrune_bluez::radios::RadioDescription;
 use relm4::{
     adw,
     adw::prelude::*,

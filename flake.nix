@@ -61,7 +61,7 @@
             root = ./.;
             fileset = lib.fileset.unions [
               (craneLib.fileset.commonCargoSources ./.)
-              ./overskride-ui/src/icons
+              ./bindrune-gtk/src/icons
               ./data/${applicationId}.gschema.xml
             ];
           };
@@ -69,8 +69,8 @@
           commonArgs = {
             src = rustSource;
             pname = "overskride";
-            version = (lib.importTOML ./overskride-ui/Cargo.toml).package.version;
-            cargoExtraArgs = "--locked --package overskride-ui";
+            version = (lib.importTOML ./bindrune-gtk/Cargo.toml).package.version;
+            cargoExtraArgs = "--locked --package bindrune-gtk";
             strictDeps = true;
             nativeBuildInputs = with pkgs; [
               pkg-config

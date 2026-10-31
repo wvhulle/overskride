@@ -1,7 +1,6 @@
 use std::time::{Duration, Instant};
 
-use futures::StreamExt;
-use overskride_bluetooth::{
+use bindrune_bluez::{
     adapter_state::{
         AdapterSnapshot, adapter_changes, set_alias, set_discoverable_timeout, set_powered,
         set_visible_for_pairing,
@@ -9,6 +8,7 @@ use overskride_bluetooth::{
     bluetooth_error::BluetoothError,
     session::BluetoothSession,
 };
+use futures::StreamExt;
 use relm4::{adw, adw::prelude::*, gtk, prelude::*};
 use uom::{
     fmt::DisplayStyle,
@@ -491,7 +491,7 @@ impl Component for AdapterPage {
 
 #[cfg(test)]
 mod tests {
-    use overskride_bluetooth::radios::RadioHardware;
+    use bindrune_bluez::radios::RadioHardware;
 
     use super::*;
 
@@ -500,8 +500,8 @@ mod tests {
             adapter_name: "hci0".to_string(),
             radio_label: "Test Radio".to_string(),
             hardware: RadioHardware::default(),
-            address: overskride_bluetooth::Address::any(),
-            address_type: overskride_bluetooth::AddressType::BrEdr,
+            address: bindrune_bluez::Address::any(),
+            address_type: bindrune_bluez::AddressType::BrEdr,
             alias: "Ryzen".to_string(),
             powered: true,
             discoverable: true,

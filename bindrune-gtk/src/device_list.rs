@@ -1,13 +1,13 @@
 use std::cmp::Ordering;
 
-use futures::StreamExt;
-use overskride_bluetooth::{
+use bindrune_bluez::{
     bluetooth_error::BluetoothError,
     device_changes::{DeviceChange, device_changes},
     device_ordering::compare_devices,
     device_snapshot::DeviceSnapshot,
     session::BluetoothSession,
 };
+use futures::StreamExt;
 use relm4::{
     ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk,
     gtk::{gio, glib, prelude::*},
@@ -263,7 +263,7 @@ pub enum DeviceStreamEvent {
 }
 
 impl DeviceList {
-    fn position_of(&self, address: overskride_bluetooth::Address) -> Option<u32> {
+    fn position_of(&self, address: bindrune_bluez::Address) -> Option<u32> {
         self.device_rows
             .find(|row| row.snapshot.address() == address)
     }

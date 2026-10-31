@@ -15,7 +15,7 @@ CHECK_ROOT := $(CURDIR)/target/check-install
 .PHONY: build install install-binary install-data install-desktop-entry install-metainfo install-schema install-icons install-systemd-unit uninstall check
 
 build:
-	$(CARGO) build --release --locked --package overskride-ui
+	$(CARGO) build --release --locked --package bindrune-gtk
 
 install: install-binary install-data
 

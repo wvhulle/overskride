@@ -6,7 +6,7 @@ const MOST_TRAY_DEVICES: usize = 8;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TrayDevice {
-    pub address: overskride_bluetooth::Address,
+    pub address: bindrune_bluez::Address,
     pub display_name: String,
     pub connected: bool,
 }
@@ -25,7 +25,7 @@ pub enum TrayRequest {
     SetPowered(bool),
     SetVisibleForPairing(bool),
     SetDeviceConnected {
-        address: overskride_bluetooth::Address,
+        address: bindrune_bluez::Address,
         connected: bool,
     },
     ShowSettings,

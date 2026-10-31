@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use overskride_bluetooth::{
+use bindrune_bluez::{
     obex_transfers::IncomingTransfer,
     pairing_agent::{
         ApprovalRequest, PairingRequest, PasskeyRequest, PinCodeRequest,
