@@ -19,7 +19,7 @@ use bindrune_bluez::{
     },
 };
 use futures::StreamExt;
-use relm4::{adw, adw::prelude::*, factory::FactoryVecDeque, gtk, prelude::*};
+use relm4::{adw, adw::prelude::*, gtk, prelude::*};
 
 use crate::{
     adapter_detail::adapter_detail_page::{
@@ -46,12 +46,12 @@ use crate::{
         device_connection_history::{ChangedConnectionHistory, DeviceConnectionHistories},
         tray_device_menu_sync::TrayDeviceMenuSync,
     },
-    sidebar_device_list::{
-        discovery_scan_toggle_row::{
-            DiscoveryScanToggleRow, DiscoveryScanToggleRowInit, DiscoveryScanToggleRowInput,
+    sidebar_navigation::{
+        sidebar_device_rows::DeviceListOutput,
+        sidebar_navigation_page::{
+            SidebarNavigationPage, SidebarNavigationPageInit, SidebarNavigationPageInput,
+            SidebarNavigationPageOutput,
         },
-        sidebar_adapter_row::{AdapterRow, AdapterRowInit},
-        sidebar_device_rows::{DeviceList, DeviceListInput, DeviceListOutput, DeviceListSource},
     },
 };
 
@@ -87,17 +87,14 @@ pub struct MainView {
     device_names: HashMap<bindrune_bluez::Address, String>,
     tray_devices: TrayDeviceMenuSync,
     connection_histories: DeviceConnectionHistories,
-    scan_toggle_row: Controller<DiscoveryScanToggleRow>,
     content_page: ContentPage,
     content_title: String,
     split_view: adw::NavigationSplitView,
-    device_list: Controller<DeviceList>,
+    sidebar: Controller<SidebarNavigationPage>,
     adapter_page: Controller<AdapterPage>,
     app_settings: Controller<AppSettingsPage>,
-    adapter_rows: FactoryVecDeque<AdapterRow>,
     transfers: Controller<TransfersPopover>,
     prompt_center: Controller<PromptCenter>,
-    device_list_slot: adw::Bin,
     content_slot: adw::Bin,
 }
 
@@ -131,21 +128,6 @@ pub enum MainViewCommand {
     DeviceRead(Result<DeviceSnapshot, BluetoothError>),
     TrayConnectionChanged(Result<(), ConnectionStepFailure>),
     ConnectionDropped(ConnectionDrop),
-}
-
-fn launch_device_list(
-    session: &BluetoothSession,
-    adapter_name: &str,
-    preferences: &AppPreferences,
-    sender: &ComponentSender<MainView>,
-) -> Controller<DeviceList> {
-    DeviceList::builder()
-        .launch(DeviceListSource {
-            session: session.clone(),
-            adapter_name: adapter_name.to_string(),
-            show_unnamed_devices: preferences.show_unnamed_devices(),
-        })
-        .forward(sender.input_sender(), MainViewInput::DeviceList)
 }
 
 fn launch_adapter_page(
@@ -194,16 +176,6 @@ impl MainView {
         self.content_title = self.adapter.radio_label.clone();
     }
 
-    fn mark_active_adapter(&mut self) {
-        let active_adapter_name = self.adapter.adapter_name.clone();
-        self.adapter_rows
-            .guard()
-            .iter_mut()
-            .for_each(|adapter_row| {
-                adapter_row.active = adapter_row.radio.adapter_name == active_adapter_name;
-            });
-    }
-
     fn open_device(&mut self, snapshot: DeviceSnapshot, sender: &ComponentSender<Self>) {
         self.content_title = snapshot.display_name().to_string();
         if self.shown_device_address() == Some(snapshot.address()) {
@@ -227,8 +199,7 @@ impl MainView {
     }
 
     fn start_scan(&self) {
-        self.scan_toggle_row
-            .emit(DiscoveryScanToggleRowInput::StartScan);
+        self.sidebar.emit(SidebarNavigationPageInput::StartScan);
     }
 
     fn switch_adapter(
@@ -247,21 +218,13 @@ impl MainView {
     }
 
     fn install_adapter(&mut self, adapter: AdapterSnapshot, sender: &ComponentSender<Self>) {
-        self.scan_toggle_row
-            .emit(DiscoveryScanToggleRowInput::AdapterSwitched(
-                adapter.adapter_name.clone(),
+        self.sidebar
+            .emit(SidebarNavigationPageInput::AdapterInstalled(
+                adapter.clone(),
             ));
         self.preferences
             .remember_adapter_name(&adapter.adapter_name);
-        self.device_list = launch_device_list(
-            &self.session,
-            &adapter.adapter_name,
-            &self.preferences,
-            sender,
-        );
         self.adapter_page = launch_adapter_page(&self.session, &adapter, sender);
-        self.device_list_slot
-            .set_child(Some(self.device_list.widget()));
         self.transfers.emit(TransfersInput::AdapterSwitched(
             adapter.adapter_name.clone(),
         ));
@@ -269,7 +232,6 @@ impl MainView {
         self.tray_devices.forget_all_devices();
         self.adapter = adapter;
         self.publish_tray_content(sender);
-        self.mark_active_adapter();
         self.show_adapter_page();
     }
 
@@ -451,63 +413,7 @@ impl Component for MainView {
                 set_min_sidebar_width: 300.0,
                 set_max_sidebar_width: 360.0,
 
-                #[wrap(Some)]
-                set_sidebar = &adw::NavigationPage {
-                    set_title: "Overskride",
-
-                    #[wrap(Some)]
-                    set_child = &adw::ToolbarView {
-                        add_top_bar = &adw::HeaderBar {
-                            pack_start: model.transfers.widget(),
-                        },
-
-                        #[wrap(Some)]
-                        set_content = &gtk::ScrolledWindow {
-                            set_vexpand: true,
-
-                            gtk::Box {
-                                set_orientation: gtk::Orientation::Vertical,
-                                set_spacing: 24,
-                                set_margin_all: 12,
-
-                                adw::PreferencesGroup {
-                                    set_title: "Settings",
-
-                                    adw::ActionRow {
-                                        set_title: "Settings",
-                                        set_subtitle: "Received files and device list",
-                                        set_activatable: true,
-                                        add_prefix = &gtk::Image {
-                                            set_icon_name: Some("emblem-system-symbolic"),
-                                        },
-                                        add_suffix = &gtk::Image {
-                                            set_icon_name: Some("go-next-symbolic"),
-                                        },
-                                        connect_activated => MainViewInput::ShowAppSettings,
-                                    },
-                                },
-
-                                #[local_ref]
-                                adapter_group -> adw::PreferencesGroup {
-                                    set_title: "Adapters",
-                                    set_description: Some("Bonds and trust are stored per adapter"),
-                                },
-
-                                adw::PreferencesGroup {
-                                    set_title: "Devices",
-                                    #[watch]
-                                    set_description: Some(&format!("Known to {}, plus devices found by scanning.", model.adapter.radio_label)),
-
-                                    #[local_ref]
-                                    scan_toggle_row_widget -> adw::ActionRow {},
-
-                                    #[local_ref]
-                                    device_list_slot -> adw::Bin {},
-                                },
-                            },
-                        },
-                    },
-                },
+                set_sidebar: Some(model.sidebar.widget()),
 
                 #[wrap(Some)]
                 set_content = &adw::NavigationPage {
@@ -556,21 +462,10 @@ impl Component for MainView {
             radios,
             adapter,
         } = view_init;
-        let device_list =
-            launch_device_list(&session, &adapter.adapter_name, &preferences, &sender);
         let adapter_page = launch_adapter_page(&session, &adapter, &sender);
         let app_settings = AppSettingsPage::builder()
             .launch(preferences.clone())
             .detach();
-        let mut adapter_rows = FactoryVecDeque::builder()
-            .launch(adw::PreferencesGroup::default())
-            .forward(sender.input_sender(), MainViewInput::AdapterActivated);
-        radios.iter().for_each(|radio| {
-            adapter_rows.guard().push_back(AdapterRowInit {
-                radio: radio.clone(),
-                active: radio.adapter_name == adapter.adapter_name,
-            });
-        });
         let prompt_center = PromptCenter::builder()
             .launch(())
             .forward(sender.input_sender(), MainViewInput::PromptCenter);
@@ -592,9 +487,32 @@ impl Component for MainView {
                 adapter_name: adapter.adapter_name.clone(),
             })
             .forward(sender.input_sender(), MainViewInput::Transfers);
-        let device_list_slot = adw::Bin::new();
         let content_slot = adw::Bin::new();
-        device_list_slot.set_child(Some(device_list.widget()));
+        let sidebar = SidebarNavigationPage::builder()
+            .launch(SidebarNavigationPageInit {
+                session: session.clone(),
+                preferences: preferences.clone(),
+                radios: radios.clone(),
+                adapter: adapter.clone(),
+                transfers_button: transfers.widget().clone(),
+            })
+            .forward(
+                sender.input_sender(),
+                |sidebar_output| match sidebar_output {
+                    SidebarNavigationPageOutput::SettingsActivated => {
+                        MainViewInput::ShowAppSettings
+                    }
+                    SidebarNavigationPageOutput::AdapterActivated(adapter_name) => {
+                        MainViewInput::AdapterActivated(adapter_name)
+                    }
+                    SidebarNavigationPageOutput::DeviceListReported(device_list_output) => {
+                        MainViewInput::DeviceList(device_list_output)
+                    }
+                    SidebarNavigationPageOutput::ScanFailed(scan_error) => {
+                        MainViewInput::ScanFailed(scan_error)
+                    }
+                },
+            );
         content_slot.set_child(Some(&**adapter_page.widget()));
 
         let preference_sender = sender.input_sender().clone();
@@ -640,12 +558,6 @@ impl Component for MainView {
         });
 
         let initial_content_title = adapter.radio_label.clone();
-        let scan_toggle_row = DiscoveryScanToggleRow::builder()
-            .launch(DiscoveryScanToggleRowInit {
-                session: session.clone(),
-                adapter_name: adapter.adapter_name.clone(),
-            })
-            .forward(sender.input_sender(), MainViewInput::ScanFailed);
         let model = Self {
             session,
             obex,
@@ -655,24 +567,18 @@ impl Component for MainView {
             device_names: HashMap::new(),
             tray_devices: TrayDeviceMenuSync::default(),
             connection_histories: DeviceConnectionHistories::default(),
-            scan_toggle_row,
             content_page: ContentPage::Adapter,
             content_title: initial_content_title,
             split_view: adw::NavigationSplitView::new(),
-            device_list,
+            sidebar,
             adapter_page,
             app_settings,
-            adapter_rows,
             transfers,
             prompt_center,
-            device_list_slot: device_list_slot.clone(),
             content_slot: content_slot.clone(),
         };
-        let device_list_slot = &device_list_slot;
         let content_slot = &content_slot;
         let split_view = &model.split_view;
-        let adapter_group = model.adapter_rows.widget();
-        let scan_toggle_row_widget = model.scan_toggle_row.widget();
         let widgets = view_output!();
 
         let refresh_sender = sender.input_sender().clone();
@@ -711,14 +617,8 @@ impl Component for MainView {
                 self.reveal_content();
             }
             MainViewInput::RefreshDevices => {
-                self.device_list = launch_device_list(
-                    &self.session,
-                    &self.adapter.adapter_name,
-                    &self.preferences,
-                    &sender,
-                );
-                self.device_list_slot
-                    .set_child(Some(self.device_list.widget()));
+                self.sidebar
+                    .emit(SidebarNavigationPageInput::RefreshDevices);
             }
             MainViewInput::PreferenceChanged(PreferenceChange::AutoAcceptSenders) => {
                 if let ContentPage::Device(device_page) = &self.content_page {
@@ -731,8 +631,10 @@ impl Component for MainView {
             MainViewInput::PreferenceChanged(PreferenceChange::ShowUnnamedDevices(
                 show_unnamed_devices,
             )) => {
-                self.device_list
-                    .emit(DeviceListInput::ShowUnnamedDevices(show_unnamed_devices));
+                self.sidebar
+                    .emit(SidebarNavigationPageInput::ShowUnnamedDevices(
+                        show_unnamed_devices,
+                    ));
             }
             MainViewInput::PreferenceChanged(
                 PreferenceChange::RunInBackground(_)
@@ -767,20 +669,8 @@ impl Component for MainView {
                 root.add_toast(adw::Toast::new(&format!("Receiving {file_name}")));
             }
             MainViewInput::AdapterPage(AdapterPageOutput::AdapterChanged(adapter)) => {
-                if adapter.powered && !self.adapter.powered {
-                    self.device_list = launch_device_list(
-                        &self.session,
-                        &adapter.adapter_name,
-                        &self.preferences,
-                        &sender,
-                    );
-                    self.device_list_slot
-                        .set_child(Some(self.device_list.widget()));
-                }
-                if !adapter.powered {
-                    self.scan_toggle_row
-                        .emit(DiscoveryScanToggleRowInput::StopScan);
-                }
+                self.sidebar
+                    .emit(SidebarNavigationPageInput::AdapterChanged(adapter.clone()));
                 self.adapter = adapter;
                 self.publish_tray_content(&sender);
             }

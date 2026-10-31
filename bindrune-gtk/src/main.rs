@@ -7,7 +7,7 @@ mod incoming_request_prompts;
 mod shared_device_appearance;
 mod shared_page_widget_templates;
 mod sidebar_content_split;
-mod sidebar_device_list;
+mod sidebar_navigation;
 #[allow(dead_code)]
 mod icon_names {
     include!(concat!(env!("OUT_DIR"), "/icon_names.rs"));

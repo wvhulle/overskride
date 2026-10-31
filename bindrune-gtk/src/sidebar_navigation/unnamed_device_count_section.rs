@@ -3,7 +3,7 @@ use relm4::{
     gtk::{gio, glib, prelude::*},
 };
 
-use crate::sidebar_device_list::sidebar_device_row_item::DeviceRowItem;
+use crate::sidebar_navigation::sidebar_device_row_item::DeviceRowItem;
 
 pub(super) const NAMED_ONLY_FILTER_INDEX: usize = 0;
 const NAMELESS_SECTION_TITLE: &str = "Without a Name";

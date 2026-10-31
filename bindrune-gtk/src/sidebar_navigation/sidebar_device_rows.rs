@@ -14,7 +14,7 @@ use relm4::{
 
 use crate::{
     icon_names,
-    sidebar_device_list::{
+    sidebar_navigation::{
         sidebar_device_row_item::DeviceRowItem,
         unnamed_device_count_section::{
             NAMED_ONLY_FILTER_INDEX, describe_hidden_unnamed, install_name_sections,
