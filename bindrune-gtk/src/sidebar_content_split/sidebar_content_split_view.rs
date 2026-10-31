@@ -29,6 +29,7 @@ use crate::{
     background_application_lifecycle::{
         application_menu_actions::{AnswerDialogAction, AppActionGroup, QuitAction},
         gsettings_stored_preferences::{GsettingsStoredPreferences, PreferenceChange},
+        startup_page_argument::StartupPage,
         system_tray_menu::{TrayContent, TrayRequest},
     },
     device_detail::{
@@ -67,6 +68,7 @@ pub struct SidebarContentSplitViewInit {
     pub preferences: GsettingsStoredPreferences,
     pub radios: Vec<AdapterHardwareDescription>,
     pub adapter: AdapterSnapshot,
+    pub startup_page: StartupPage,
 }
 
 enum ContentPage {
@@ -472,6 +474,7 @@ impl Component for SidebarContentSplitView {
             preferences,
             radios,
             adapter,
+            startup_page,
         } = view_init;
         let adapter_page = launch_adapter_page(&session, &adapter, &sender);
         let app_settings = ApplicationPreferencesPage::builder()
@@ -616,6 +619,18 @@ impl Component for SidebarContentSplitView {
         window_actions.add_action(about_action);
         window_actions.register_for_widget(&root);
         model.publish_tray_content(&sender);
+        if let StartupPage::Device(address) = startup_page {
+            let startup_session = model.session.clone();
+            let location = DeviceLocation {
+                adapter_name: model.adapter.adapter_name.clone(),
+                address,
+            };
+            sender.oneshot_command(async move {
+                SidebarContentSplitViewCommand::DeviceRead(
+                    read_device(&startup_session, &location).await,
+                )
+            });
+        }
 
         ComponentParts { model, widgets }
     }

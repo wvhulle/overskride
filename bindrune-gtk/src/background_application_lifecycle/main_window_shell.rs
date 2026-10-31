@@ -22,6 +22,7 @@ use crate::{
         application_menu_actions::{AppActionGroup, QuitAction, ShowWindowAction},
         gsettings_stored_preferences::{GsettingsStoredPreferences, PreferenceChange},
         login_autostart_entry::{LoginAutostartError, apply_login_autostart, managed_by_systemd},
+        startup_page_argument::StartupPage,
         system_tray_menu::{SystemTrayMenu, TrayContent, TrayRequest, TrayScope},
     },
     device_detail::file_transfer_group::ObexAvailability,
@@ -68,6 +69,7 @@ enum TrayPresence {
 
 pub struct MainWindowShellInit {
     pub preferences: GsettingsStoredPreferences,
+    pub startup_page: StartupPage,
 }
 
 pub struct MainWindowShell {
@@ -313,6 +315,7 @@ impl AsyncComponent for MainWindowShell {
                         preferences,
                         radios: ready_bluetooth.radios,
                         adapter: ready_bluetooth.adapter,
+                        startup_page: window_init.startup_page,
                     })
                     .forward(
                         sender.input_sender(),
