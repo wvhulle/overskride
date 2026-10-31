@@ -47,17 +47,7 @@ impl SimpleComponent for AppSettingsPage {
                 adw::PreferencesGroup {
                     set_title: "Received Files",
 
-                    #[name = "auto_accept_row"]
-                    adw::SwitchRow {
-                        set_title: "Auto Accept",
-                        set_subtitle: "Accept files from trusted devices without asking",
-                    },
-
-                    #[name = "keep_accepting_row"]
-                    adw::SwitchRow {
-                        set_title: "Keep Accepting",
-                        set_subtitle: "After accepting one file, accept further files from the same device",
-                    },
+                    set_description: Some("Whether a device may send files without asking is set on its own page."),
 
                     adw::ActionRow {
                         set_title: "Location",
@@ -101,16 +91,6 @@ impl SimpleComponent for AppSettingsPage {
         let widgets = view_output!();
 
         let settings = model.preferences.settings();
-        settings
-            .bind(
-                "auto-accept-from-trusted",
-                &widgets.auto_accept_row,
-                "active",
-            )
-            .build();
-        settings
-            .bind("first-auto-accept", &widgets.keep_accepting_row, "active")
-            .build();
         settings
             .bind("show-unnamed-devices", &widgets.show_unnamed_row, "active")
             .build();

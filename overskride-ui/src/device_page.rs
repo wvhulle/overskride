@@ -57,6 +57,8 @@ pub struct DevicePageInit {
     pub session: BluetoothSession,
     pub obex: ObexAvailability,
     pub adapter_address: overskride_bluetooth::Address,
+    pub accepts_files: bool,
+    pub received_files_folder: PathBuf,
     pub snapshot: DeviceSnapshot,
 }
 
@@ -64,6 +66,8 @@ pub struct DevicePage {
     session: BluetoothSession,
     obex: ObexAvailability,
     adapter_address: overskride_bluetooth::Address,
+    accepts_files: bool,
+    received_files_folder: PathBuf,
     snapshot: DeviceSnapshot,
     radio_bonds: Vec<RadioBond>,
     active_pairing: ActivePairing,
@@ -82,13 +86,22 @@ pub enum DevicePageInput {
     ChooseFilesToSend,
     SendFiles(Vec<PathBuf>),
     AudioChoiceSelected(u32),
+    AutoAcceptToggled(bool),
+    AutoAcceptChanged(bool),
     ForgetConfirmed,
 }
 
 #[derive(Debug)]
 pub enum DevicePageOutput {
     Failed(BluetoothError),
-    Forgotten { hint: String, rescan: bool },
+    Forgotten {
+        hint: String,
+        rescan: bool,
+    },
+    AutoAcceptChosen {
+        address: overskride_bluetooth::Address,
+        accepts_files: bool,
+    },
     ShowRadio(String),
     PairViaRadio(String),
     TransfersStarted(Vec<TransferHandle>),
@@ -312,6 +325,14 @@ impl DevicePage {
         }
     }
 
+    fn describe_auto_accept(&self) -> String {
+        if self.snapshot.bonded {
+            format!("Saved straight to {}", self.received_files_folder.display())
+        } else {
+            "Pair this device first".to_string()
+        }
+    }
+
     fn report_failure(sender: &ComponentSender<Self>, failure: BluetoothError) {
         let _app_gone = sender.output(DevicePageOutput::Failed(failure));
     }
@@ -364,6 +385,22 @@ impl Component for DevicePage {
                         connect_selected_notify[sender] => move |combo_row| {
                             sender.input(DevicePageInput::AudioChoiceSelected(combo_row.selected()));
                         } @audio_choice_handler,
+                    },
+
+                    adw::SwitchRow {
+                        set_title: "Accept Files Without Asking",
+                        #[watch]
+                        set_visible: model.snapshot.offers_object_push(),
+                        #[watch]
+                        set_sensitive: model.snapshot.bonded,
+                        #[watch]
+                        set_subtitle: &model.describe_auto_accept(),
+                        #[watch]
+                        #[block_signal(auto_accept_handler)]
+                        set_active: model.accepts_files,
+                        connect_active_notify[sender] => move |switch_row| {
+                            sender.input(DevicePageInput::AutoAcceptToggled(switch_row.is_active()));
+                        } @auto_accept_handler,
                     },
 
                     adw::ActionRow {
@@ -478,6 +515,8 @@ impl Component for DevicePage {
             session: page_init.session,
             obex: page_init.obex,
             adapter_address: page_init.adapter_address,
+            accepts_files: page_init.accepts_files,
+            received_files_folder: page_init.received_files_folder,
             snapshot: page_init.snapshot,
             radio_bonds: Vec::new(),
             active_pairing: ActivePairing::Idle,
@@ -581,6 +620,16 @@ impl Component for DevicePage {
                     };
                     DevicePageCommand::AudioProfileApplied(outcome)
                 });
+            }
+            DevicePageInput::AutoAcceptToggled(accepts_files) => {
+                self.accepts_files = accepts_files;
+                let _app_gone = sender.output(DevicePageOutput::AutoAcceptChosen {
+                    address: self.snapshot.address(),
+                    accepts_files,
+                });
+            }
+            DevicePageInput::AutoAcceptChanged(accepts_files) => {
+                self.accepts_files = accepts_files;
             }
             DevicePageInput::ForgetConfirmed => self.forget(false, &sender),
         }

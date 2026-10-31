@@ -6,6 +6,7 @@ use relm4::gtk::prelude::*;
 
 pub const APPLICATION_ID: &str = "io.github.kaii_lb.Overskride";
 const RECEIVED_FILES_SUBFOLDER: &str = "Bluetooth";
+const AUTO_ACCEPT_SENDERS_KEY: &str = "auto-accept-senders";
 
 #[derive(Clone, Debug)]
 pub struct AppPreferences {
@@ -53,12 +54,56 @@ impl AppPreferences {
             .set_boolean("show-unnamed-devices", show_unnamed_devices);
     }
 
-    pub fn auto_accept_from_trusted(&self) -> bool {
-        self.settings.boolean("auto-accept-from-trusted")
+    pub fn accepts_files_from(&self, sender_address: overskride_bluetooth::Address) -> bool {
+        let sender_address = sender_address.to_string();
+        self.settings
+            .strv(AUTO_ACCEPT_SENDERS_KEY)
+            .iter()
+            .any(|accepted_address| accepted_address.as_str() == sender_address)
     }
 
-    pub fn keep_accepting_after_first_file(&self) -> bool {
-        self.settings.boolean("first-auto-accept")
+    pub fn allow_auto_accept(&self, sender_address: overskride_bluetooth::Address) {
+        if self.accepts_files_from(sender_address) {
+            return;
+        }
+        let mut accepted_addresses = self.auto_accept_addresses();
+        accepted_addresses.push(sender_address.to_string());
+        self.store_auto_accept_addresses(&accepted_addresses);
+    }
+
+    pub fn revoke_auto_accept(&self, sender_address: overskride_bluetooth::Address) {
+        let sender_address = sender_address.to_string();
+        let remaining_addresses = self
+            .auto_accept_addresses()
+            .into_iter()
+            .filter(|accepted_address| *accepted_address != sender_address)
+            .collect::<Vec<_>>();
+        self.store_auto_accept_addresses(&remaining_addresses);
+    }
+
+    pub fn connect_auto_accept_changed<F: Fn() + 'static>(&self, on_auto_accept_changed: F) {
+        self.settings.connect_changed(
+            Some(AUTO_ACCEPT_SENDERS_KEY),
+            move |_changed_settings, _setting_key| on_auto_accept_changed(),
+        );
+    }
+
+    fn auto_accept_addresses(&self) -> Vec<String> {
+        self.settings
+            .strv(AUTO_ACCEPT_SENDERS_KEY)
+            .iter()
+            .map(|accepted_address| accepted_address.to_string())
+            .collect()
+    }
+
+    fn store_auto_accept_addresses(&self, accepted_addresses: &[String]) {
+        let address_slices = accepted_addresses
+            .iter()
+            .map(String::as_str)
+            .collect::<Vec<_>>();
+        let _unwritable_setting_is_not_fatal = self
+            .settings
+            .set_strv(AUTO_ACCEPT_SENDERS_KEY, address_slices.as_slice());
     }
 
     pub fn remembered_adapter_name(&self) -> String {

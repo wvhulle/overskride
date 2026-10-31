@@ -16,10 +16,21 @@ use relm4::prelude::*;
 
 use crate::app_preferences::AppPreferences;
 use crate::device_page::ObexAvailability;
-use crate::widgets::alert_dialogs::{build_alert, choose_response, plain_choice, suggested_choice};
+use crate::widgets::alert_dialogs::{
+    AlertChoice, build_alert, choose_response, plain_choice, suggested_choice,
+};
 
 const FINISHED_TRANSFER_LINGER: Duration = Duration::from_secs(60);
 const BYTES_PER_MEGABYTE: f64 = 1_000_000.0;
+const BONDED_SENDER_CHOICES: [AlertChoice; 3] = [
+    plain_choice("reject", "Reject"),
+    plain_choice("accept", "Accept"),
+    suggested_choice("always", "Always Accept"),
+];
+const UNBONDED_SENDER_CHOICES: [AlertChoice; 2] = [
+    plain_choice("reject", "Reject"),
+    suggested_choice("accept", "Accept"),
+];
 
 pub struct TransfersInit {
     pub session: BluetoothSession,
@@ -43,8 +54,25 @@ pub enum TransfersInput {
     RowFinished(DynamicIndex),
     Decided {
         incoming_transfer: IncomingTransfer,
-        accepted: bool,
+        transfer_decision: TransferDecision,
     },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransferDecision {
+    Rejected,
+    Accepted,
+    AlwaysAccepted,
+}
+
+impl TransferDecision {
+    fn from_response(response_id: &str) -> Self {
+        match response_id {
+            "always" => Self::AlwaysAccepted,
+            "accept" => Self::Accepted,
+            _ => Self::Rejected,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -56,7 +84,7 @@ pub enum TransfersOutput {
 pub struct SenderAssessment {
     incoming_transfer: IncomingTransfer,
     sender_name: String,
-    trusted: bool,
+    bonded: bool,
 }
 
 #[derive(Debug)]
@@ -76,9 +104,7 @@ impl TransfersPopover {
         let sender_address = incoming_transfer.sender_address;
         let file_name = incoming_transfer.file_name.clone();
         let transfer_handle = incoming_transfer.accept(self.preferences.received_files_folder());
-        if self.preferences.keep_accepting_after_first_file() {
-            self.accepted_senders.insert(sender_address);
-        }
+        self.accepted_senders.insert(sender_address);
         self.transfer_rows.guard().push_back(transfer_handle);
         let _app_gone = sender.output(TransfersOutput::ReceivingFile { file_name });
     }
@@ -96,7 +122,7 @@ impl TransfersPopover {
                     |_unknown| location.address.to_string(),
                     |snapshot| snapshot.display_name().to_string(),
                 ),
-                trusted: sender_snapshot.is_ok_and(|snapshot| snapshot.trusted),
+                bonded: sender_snapshot.is_ok_and(|snapshot| snapshot.bonded),
                 incoming_transfer,
             })
         });
@@ -111,18 +137,20 @@ impl TransfersPopover {
                 megabytes(assessment.incoming_transfer.total_bytes),
                 assessment.sender_name
             ),
-            &[
-                plain_choice("reject", "Reject"),
-                suggested_choice("accept", "Accept"),
-            ],
+            if assessment.bonded {
+                &BONDED_SENDER_CHOICES
+            } else {
+                &UNBONDED_SENDER_CHOICES
+            },
         );
         let input_sender = sender.input_sender().clone();
         let incoming_transfer = assessment.incoming_transfer;
         relm4::spawn_local(async move {
-            let accepted = choose_response(&question_dialog).await == "accept";
+            let transfer_decision =
+                TransferDecision::from_response(&choose_response(&question_dialog).await);
             input_sender.emit(TransfersInput::Decided {
                 incoming_transfer,
-                accepted,
+                transfer_decision,
             });
         });
     }
@@ -219,12 +247,16 @@ impl Component for TransfersPopover {
             TransfersInput::AdapterSwitched(adapter_name) => self.adapter_name = adapter_name,
             TransfersInput::Decided {
                 incoming_transfer,
-                accepted: true,
-            } => self.accept(incoming_transfer, &sender),
-            TransfersInput::Decided {
-                incoming_transfer,
-                accepted: false,
-            } => incoming_transfer.reject(),
+                transfer_decision,
+            } => match transfer_decision {
+                TransferDecision::Rejected => incoming_transfer.reject(),
+                TransferDecision::Accepted => self.accept(incoming_transfer, &sender),
+                TransferDecision::AlwaysAccepted => {
+                    self.preferences
+                        .allow_auto_accept(incoming_transfer.sender_address);
+                    self.accept(incoming_transfer, &sender);
+                }
+            },
             TransfersInput::RowFinished(finished_index) => {
                 sender.oneshot_command(async move {
                     tokio::time::sleep(FINISHED_TRANSFER_LINGER).await;
@@ -252,7 +284,11 @@ impl Component for TransfersPopover {
                 }
             }
             TransfersCommand::SenderAssessed(assessment) => {
-                if assessment.trusted && self.preferences.auto_accept_from_trusted() {
+                if assessment.bonded
+                    && self
+                        .preferences
+                        .accepts_files_from(assessment.incoming_transfer.sender_address)
+                {
                     self.accept(assessment.incoming_transfer, &sender);
                 } else {
                     Self::ask_user(assessment, &sender);

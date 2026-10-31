@@ -92,6 +92,7 @@ pub enum MainViewInput {
     BackToSidebar,
     RefreshDevices,
     ShowUnnamedDevices(bool),
+    AutoAcceptChanged,
     DeviceList(DeviceListOutput),
     DevicePage(DevicePageOutput),
     AdapterPage(AdapterPageOutput),
@@ -208,6 +209,8 @@ impl MainView {
                 session: self.session.clone(),
                 obex: self.obex.clone(),
                 adapter_address: self.adapter.address,
+                accepts_files: self.preferences.accepts_files_from(snapshot.address()),
+                received_files_folder: self.preferences.received_files_folder(),
                 snapshot,
             })
             .forward(sender.input_sender(), MainViewInput::DevicePage);
@@ -328,10 +331,23 @@ impl MainView {
                 root.add_toast(adw::Toast::new(&failure.to_string()));
             }
             DevicePageOutput::Forgotten { hint, rescan } => {
+                if let (false, Some(forgotten_address)) = (rescan, self.shown_device_address()) {
+                    self.preferences.revoke_auto_accept(forgotten_address);
+                }
                 root.add_toast(adw::Toast::new(&hint));
                 self.show_adapter_page();
                 if rescan {
                     self.start_scan(sender);
+                }
+            }
+            DevicePageOutput::AutoAcceptChosen {
+                address,
+                accepts_files,
+            } => {
+                if accepts_files {
+                    self.preferences.allow_auto_accept(address);
+                } else {
+                    self.preferences.revoke_auto_accept(address);
                 }
             }
             DevicePageOutput::ShowRadio(adapter_name) => {
@@ -547,6 +563,11 @@ impl Component for MainView {
             },
         );
 
+        let auto_accept_sender = sender.input_sender().clone();
+        preferences.connect_auto_accept_changed(move || {
+            auto_accept_sender.emit(MainViewInput::AutoAcceptChanged);
+        });
+
         let agent_session = session.clone();
         sender.command(move |command_output, shutdown| {
             shutdown
@@ -634,6 +655,14 @@ impl Component for MainView {
                 );
                 self.device_list_slot
                     .set_child(Some(self.device_list.widget()));
+            }
+            MainViewInput::AutoAcceptChanged => {
+                if let ContentPage::Device(device_page) = &self.content_page {
+                    let accepts_files = self
+                        .preferences
+                        .accepts_files_from(device_page.model().shown_address());
+                    device_page.emit(DevicePageInput::AutoAcceptChanged(accepts_files));
+                }
             }
             MainViewInput::ShowUnnamedDevices(show_unnamed_devices) => {
                 self.device_list

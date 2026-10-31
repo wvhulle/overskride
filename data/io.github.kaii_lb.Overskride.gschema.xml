@@ -25,13 +25,9 @@
 			<default>""</default>
 			<summary>where the received files are stored</summary>
 		</key>
-		<key name="first-auto-accept" type="b">
-			<default>true</default>
-			<summary>one time auto accept indicator</summary>
-		</key>
-		<key name="auto-accept-from-trusted" type="b">
-			<default>false</default>
-			<summary>accepts incoming files from trusted devices without asking</summary>
+		<key name="auto-accept-senders" type="as">
+			<default>[]</default>
+			<summary>addresses of devices whose files are accepted without asking</summary>
 		</key>
 		<key name="show-unnamed-devices" type="b">
 			<default>false</default>
