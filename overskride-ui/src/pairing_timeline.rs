@@ -112,6 +112,7 @@ fn build_step_widgets(
 ) -> StepWidgets {
     let expander_row = adw::ExpanderRow::builder()
         .title(step_presentation.title)
+        .subtitle_lines(0)
         .build();
     let status_icon = gtk::Image::new();
     let status_spinner = gtk::Spinner::builder().visible(false).build();
