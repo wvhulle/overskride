@@ -52,3 +52,12 @@ steps:
     environment: *nix_config
     commands:
       - nix build --print-build-logs .#checks.x86_64-linux.nixos-background-service
+
+  - name: conventional-commits
+    image: nixos/nix:latest
+    depends_on: []
+    when: *on_pull_requests
+    environment: *nix_config
+    commands:
+      - git fetch --quiet origin "$${CI_COMMIT_TARGET_BRANCH}"
+      - nix run --inputs-from . nixpkgs#convco -- check FETCH_HEAD..HEAD
