@@ -1,5 +1,5 @@
 use overskride_bluetooth::device_snapshot::{
-    BatteryReading, DeviceClass, DeviceSnapshot, SignalStrength,
+    BatteryReading, DeviceClass, DeviceSnapshot, DistanceEstimate, SignalStrength,
 };
 use overskride_bluetooth::kernel_input_devices::{KernelInputBinding, KernelInputDevices};
 use overskride_bluetooth::pairing_failure::PairingFailure;
@@ -9,7 +9,7 @@ use overskride_bluetooth::pairing_steps::{
 };
 use overskride_bluetooth::radio_bonds::{RadioBond, RadioMembership};
 
-use crate::device_status::input_device_missing;
+use crate::device_status::{SignalQuality, input_device_missing};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ActivePairing {
@@ -226,6 +226,8 @@ impl TimelineInputs<'_> {
             "Blocked. Every connection is rejected."
         } else if !snapshot.trusted {
             "Bonded. Each connection needs approval."
+        } else if !snapshot.connected && in_range(snapshot) {
+            "Bonded and trusted. In range, but not connected."
         } else if !snapshot.connected {
             "Bonded and trusted. Reconnects when turned on."
         } else if input_device_missing(snapshot) {
@@ -238,7 +240,7 @@ impl TimelineInputs<'_> {
 
     fn missing_prerequisite(&self, step: PairingStep) -> Option<PairingStep> {
         let prerequisite_step = match step {
-            PairingStep::Pairing => return None,
+            PairingStep::Pairing | PairingStep::Signal => return None,
             PairingStep::Bonding | PairingStep::Connection => PairingStep::Pairing,
             PairingStep::Authorization => PairingStep::Bonding,
             PairingStep::InputDevice => PairingStep::Connection,
@@ -430,23 +432,56 @@ impl TimelineInputs<'_> {
         }]
     }
 
+    fn signal_step(&self, default_state: StepNodeState) -> StepParts {
+        let snapshot = self.snapshot;
+        let (status_text, property_rows) = match snapshot.signal_strength {
+            SignalStrength::Measured(rssi) => {
+                let signal_quality = SignalQuality::from_rssi(rssi);
+                (
+                    format!("{} signal, in range", signal_quality.quality_label()),
+                    vec![
+                        PropertyRow::InlineWithIcon {
+                            key: "Signal strength".to_string(),
+                            value: format!("{rssi} dBm"),
+                            hint: PropertyHint::Shown("Measured while scanning".to_string()),
+                            icon_name: signal_quality.quality_icon_name().to_string(),
+                        },
+                        distance_row(snapshot.distance_estimate()),
+                    ],
+                )
+            }
+            SignalStrength::Unknown if snapshot.connected => {
+                ("Connected, strength not reported".to_string(), Vec::new())
+            }
+            SignalStrength::Unknown => (
+                "Not measured: press Scan to check whether it is nearby".to_string(),
+                Vec::new(),
+            ),
+        };
+        StepParts {
+            node_state: if default_state == StepNodeState::Next && self.is_busy() {
+                StepNodeState::Pending
+            } else {
+                default_state
+            },
+            status_text,
+            button: StepButtonSlot::Hidden,
+            property_rows,
+        }
+    }
+
     fn connection_step(&self, default_state: StepNodeState) -> StepParts {
         let snapshot = self.snapshot;
         let waiting_for_device = !snapshot.connected && snapshot.bonded && snapshot.trusted;
+        let ready_to_connect = waiting_for_device && in_range(snapshot);
         let status_text = if snapshot.connected {
             "Connected"
+        } else if ready_to_connect {
+            "In range: press Connect if it doesn't connect by itself"
         } else if waiting_for_device {
-            "Waiting: turn the device on; it connects by itself"
+            "Waiting: turn the device on or bring it closer"
         } else {
             "Not connected"
-        };
-        let signal_rows = match snapshot.signal_strength {
-            SignalStrength::Measured(rssi) => Some(hinted_property(
-                "Signal strength",
-                format!("{rssi} dBm"),
-                "Only measured while scanning",
-            )),
-            SignalStrength::Unknown => None,
         };
         let button = if snapshot.connected {
             self.button(
@@ -460,18 +495,18 @@ impl TimelineInputs<'_> {
                 StepButtonAction::Connect,
                 "Connect",
                 snapshot.paired,
-                waiting_for_device,
+                ready_to_connect,
             )
         };
         StepParts {
-            node_state: if waiting_for_device {
+            node_state: if ready_to_connect {
                 StepNodeState::Next
             } else {
                 default_state
             },
             status_text: status_text.to_string(),
             button,
-            property_rows: signal_rows.into_iter().chain(self.battery_rows()).collect(),
+            property_rows: self.battery_rows(),
         }
     }
 
@@ -521,6 +556,7 @@ impl TimelineInputs<'_> {
             PairingStep::Pairing => self.pairing_step(default_state, first_missing),
             PairingStep::Bonding => self.bonding_step(default_state),
             PairingStep::Authorization => self.authorization_step(default_state),
+            PairingStep::Signal => self.signal_step(default_state),
             PairingStep::Connection => self.connection_step(default_state),
             PairingStep::InputDevice => self.input_device_step(default_state),
         };
@@ -646,6 +682,21 @@ struct StepParts {
     status_text: String,
     button: StepButtonSlot,
     property_rows: Vec<PropertyRow>,
+}
+
+fn in_range(snapshot: &DeviceSnapshot) -> bool {
+    matches!(snapshot.signal_strength, SignalStrength::Measured(_))
+}
+
+fn distance_row(distance_estimate: DistanceEstimate) -> PropertyRow {
+    match distance_estimate {
+        DistanceEstimate::Meters(distance_meters) => hinted_property(
+            "Distance",
+            format!("≈ {distance_meters:.1} m"),
+            "Rough estimate from signal strength",
+        ),
+        DistanceEstimate::Unknown => inline_property("Distance", "Unknown"),
+    }
 }
 
 fn describe_radio_membership(membership: RadioMembership) -> &'static str {
@@ -838,6 +889,50 @@ mod tests {
         assert_eq!(authorization.status_text, "Needs bonding");
     }
 
+    fn bonded_trusted_snapshot() -> DeviceSnapshot {
+        let mut snapshot = gamepad_snapshot();
+        snapshot.paired = true;
+        snapshot.bonded = true;
+        snapshot.trusted = true;
+        snapshot.icon_name = "phone".to_string();
+        snapshot
+    }
+
+    #[test]
+    fn device_in_range_suggests_connecting() {
+        let mut snapshot = bonded_trusted_snapshot();
+        snapshot.signal_strength = SignalStrength::Measured(-59);
+        let presentation = present(&snapshot, &ActivePairing::Idle);
+        let signal = step_of(&presentation, PairingStep::Signal);
+        assert_eq!(signal.node_state, StepNodeState::Done);
+        assert_eq!(signal.status_text, "Strong signal, in range");
+        let connection = step_of(&presentation, PairingStep::Connection);
+        assert_eq!(connection.node_state, StepNodeState::Next);
+        assert!(connection.status_text.starts_with("In range"));
+        assert!(
+            connection
+                .property_rows
+                .iter()
+                .all(|property_row| !matches!(property_row, PropertyRow::InlineWithIcon { key, .. } | PropertyRow::Inline { key, .. } if key == "Signal strength"))
+        );
+        assert_eq!(
+            presentation.summary,
+            "Bonded and trusted. In range, but not connected."
+        );
+    }
+
+    #[test]
+    fn unmeasured_device_asks_for_a_scan() {
+        let presentation = present(&bonded_trusted_snapshot(), &ActivePairing::Idle);
+        let signal = step_of(&presentation, PairingStep::Signal);
+        assert_eq!(signal.node_state, StepNodeState::Next);
+        assert!(signal.status_text.contains("press Scan"));
+        assert_eq!(
+            step_of(&presentation, PairingStep::Connection).status_text,
+            "Waiting: turn the device on or bring it closer"
+        );
+    }
+
     #[test]
     fn connected_input_device_without_kernel_node_warns() {
         let mut snapshot = gamepad_snapshot();
@@ -854,6 +949,6 @@ mod tests {
             presentation.summary,
             "Connected, but no input device appeared."
         );
-        assert_eq!(presentation.completed_steps, 4);
+        assert_eq!(presentation.completed_steps, 5);
     }
 }

@@ -1,4 +1,4 @@
-use crate::device_snapshot::DeviceSnapshot;
+use crate::device_snapshot::{DeviceSnapshot, SignalStrength};
 use crate::kernel_input_devices::KernelInputBinding;
 use crate::pairing_failure::PairingFailure;
 
@@ -7,6 +7,7 @@ pub enum PairingStep {
     Pairing,
     Bonding,
     Authorization,
+    Signal,
     Connection,
     InputDevice,
 }
@@ -25,7 +26,7 @@ pub struct PairingStepDefinition {
     pub protocol_details: &'static str,
 }
 
-pub const PAIRING_STEP_DEFINITIONS: [PairingStepDefinition; 5] = [
+pub const PAIRING_STEP_DEFINITIONS: [PairingStepDefinition; 6] = [
     PairingStepDefinition {
         step: PairingStep::Pairing,
         title: "Pairing",
@@ -43,6 +44,12 @@ pub const PAIRING_STEP_DEFINITIONS: [PairingStepDefinition; 5] = [
         title: "Authorization",
         protocol_term: "BlueZ connection policy",
         protocol_details: "Not part of the Bluetooth protocol. When a device opens a profile connection (input, audio), BlueZ rejects it if the device is blocked, lets it through if the device is trusted, and otherwise asks the pairing agent. The setting is saved next to the link key, so it only survives for bonded devices.",
+    },
+    PairingStepDefinition {
+        step: PairingStep::Signal,
+        title: "Signal",
+        protocol_term: "RSSI",
+        protocol_details: "BlueZ reports the received signal strength (RSSI) of the inquiry responses and advertisements a device sends while this computer scans. A measured signal means the device is powered on and within range. Headsets and controllers then reconnect by themselves, but phones and computers usually wait until one side starts the connection, for example with the Connect button. The distance is a rough estimate from the signal strength and the transmit power.",
     },
     PairingStepDefinition {
         step: PairingStep::Connection,
@@ -74,6 +81,9 @@ pub fn is_step_done(snapshot: &DeviceSnapshot, step: PairingStep) -> bool {
         PairingStep::Pairing => snapshot.paired,
         PairingStep::Bonding => snapshot.bonded,
         PairingStep::Authorization => snapshot.trusted && !snapshot.blocked,
+        PairingStep::Signal => {
+            snapshot.connected || matches!(snapshot.signal_strength, SignalStrength::Measured(_))
+        }
         PairingStep::Connection => snapshot.connected,
         PairingStep::InputDevice => matches!(snapshot.kernel_input, KernelInputBinding::Bound(_)),
     }

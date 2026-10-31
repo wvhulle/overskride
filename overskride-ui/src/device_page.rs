@@ -9,7 +9,7 @@ use overskride_bluetooth::device_actions::{
     connect_device, disconnect_device, forget_device, pair_trust_and_connect, rename_device,
     set_connection_policy,
 };
-use overskride_bluetooth::device_snapshot::{DeviceSnapshot, DistanceEstimate, Manufacturer};
+use overskride_bluetooth::device_snapshot::{DeviceSnapshot, Manufacturer};
 use overskride_bluetooth::obex_transfers::{ObexConnection, TransferHandle};
 use overskride_bluetooth::pairing_failure::{
     AuthorizationFailure, ConnectionStepFailure, PairingFailure,
@@ -123,13 +123,6 @@ pub enum DevicePageCommand {
         rescan: bool,
     },
     FilesSending(Result<Vec<TransferHandle>, BluetoothError>),
-}
-
-fn describe_distance(distance_estimate: DistanceEstimate) -> String {
-    match distance_estimate {
-        DistanceEstimate::Unknown => "Unknown".to_string(),
-        DistanceEstimate::Meters(distance_meters) => format!("≈ {distance_meters:.2} meters"),
-    }
 }
 
 fn capability_sources(snapshot: &DeviceSnapshot) -> CapabilitySources {
@@ -487,13 +480,6 @@ impl Component for DevicePage {
                         set_visible: type_guess_evidence(&model.snapshot).is_some(),
                         #[watch]
                         set_subtitle: &glib::markup_escape_text(type_guess_evidence(&model.snapshot).unwrap_or_default()),
-                    },
-                    #[template]
-                    PropertyRow {
-                        set_title: "Distance",
-                        set_tooltip_text: Some("Estimated from signal strength, only known while scanning"),
-                        #[watch]
-                        set_subtitle: &describe_distance(model.snapshot.distance_estimate()),
                     },
                     #[template]
                     PropertyRow {

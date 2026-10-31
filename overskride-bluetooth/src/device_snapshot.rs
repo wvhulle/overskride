@@ -13,7 +13,8 @@ use crate::session::DeviceLocation;
 pub const UNKNOWN_DEVICE_NAME: &str = "Unknown Device";
 pub const HUMAN_INTERFACE_DEVICE_SERVICE: bluer::Uuid =
     bluer::Uuid::from_u128(0x0000_1124_0000_1000_8000_0080_5f9b_34fb);
-const FALLBACK_TRANSMIT_POWER: i16 = -59;
+const FALLBACK_RSSI_AT_ONE_METER: i16 = -59;
+const FREE_SPACE_LOSS_AT_ONE_METER: i16 = 41;
 const PATH_LOSS_EXPONENT: f32 = 3.0;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -275,11 +276,13 @@ impl DeviceSnapshot {
         let SignalStrength::Measured(rssi) = self.signal_strength else {
             return DistanceEstimate::Unknown;
         };
-        let measured_power = match self.transmit_power {
-            TransmitPower::Reported(transmit_power) => transmit_power,
-            TransmitPower::Unknown => FALLBACK_TRANSMIT_POWER,
+        let rssi_at_one_meter = match self.transmit_power {
+            TransmitPower::Reported(transmit_power) => {
+                transmit_power.saturating_sub(FREE_SPACE_LOSS_AT_ONE_METER)
+            }
+            TransmitPower::Unknown => FALLBACK_RSSI_AT_ONE_METER,
         };
-        let path_loss = f32::from(measured_power) - f32::from(rssi);
+        let path_loss = f32::from(rssi_at_one_meter) - f32::from(rssi);
         DistanceEstimate::Meters(10f32.powf(path_loss / (10.0 * PATH_LOSS_EXPONENT)))
     }
 }
@@ -369,8 +372,21 @@ pub(crate) mod tests {
     fn distance_needs_a_signal_measurement() {
         let mut snapshot = sample_snapshot();
         assert_eq!(snapshot.distance_estimate(), DistanceEstimate::Unknown);
-        snapshot.signal_strength = SignalStrength::Measured(FALLBACK_TRANSMIT_POWER);
+        snapshot.signal_strength = SignalStrength::Measured(FALLBACK_RSSI_AT_ONE_METER);
         assert_eq!(snapshot.distance_estimate(), DistanceEstimate::Meters(1.0));
+    }
+
+    #[test]
+    fn advertised_transmit_power_is_reduced_by_the_loss_over_one_meter() {
+        let mut snapshot = sample_snapshot();
+        snapshot.transmit_power = TransmitPower::Reported(12);
+        snapshot.signal_strength = SignalStrength::Measured(12 - FREE_SPACE_LOSS_AT_ONE_METER);
+        assert_eq!(snapshot.distance_estimate(), DistanceEstimate::Meters(1.0));
+        snapshot.signal_strength = SignalStrength::Measured(-68);
+        let DistanceEstimate::Meters(distance_meters) = snapshot.distance_estimate() else {
+            panic!("a measured signal gives a distance");
+        };
+        assert!((15.0..30.0).contains(&distance_meters));
     }
 
     #[test]

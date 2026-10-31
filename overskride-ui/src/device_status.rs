@@ -14,15 +14,55 @@ pub struct PairingStatusBadge {
     pub visible: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignalQuality {
+    Strong,
+    Good,
+    Fair,
+    Weak,
+    VeryWeak,
+    Lost,
+}
+
+impl SignalQuality {
+    pub fn from_rssi(rssi: i16) -> Self {
+        match rssi {
+            -60.. => Self::Strong,
+            -70..=-61 => Self::Good,
+            -80..=-71 => Self::Fair,
+            -90..=-81 => Self::Weak,
+            -100..=-91 => Self::VeryWeak,
+            _ => Self::Lost,
+        }
+    }
+
+    pub fn quality_label(self) -> &'static str {
+        match self {
+            Self::Strong => "Strong",
+            Self::Good => "Good",
+            Self::Fair => "Fair",
+            Self::Weak => "Weak",
+            Self::VeryWeak => "Very weak",
+            Self::Lost => "Barely reachable",
+        }
+    }
+
+    pub fn quality_icon_name(self) -> &'static str {
+        match self {
+            Self::Strong => icon_names::custom::RSSI_HIGH_SYMBOLIC,
+            Self::Good => icon_names::custom::RSSI_MEDIUM_SYMBOLIC,
+            Self::Fair => icon_names::custom::RSSI_LOW_SYMBOLIC,
+            Self::Weak => icon_names::custom::RSSI_DEAD_SYMBOLIC,
+            Self::VeryWeak => icon_names::custom::RSSI_NONE_SYMBOLIC,
+            Self::Lost => icon_names::custom::RSSI_NOT_FOUND_SYMBOLIC,
+        }
+    }
+}
+
 pub fn signal_icon_name(signal_strength: SignalStrength) -> &'static str {
     match signal_strength {
         SignalStrength::Unknown => icon_names::custom::RSSI_NONE_SYMBOLIC,
-        SignalStrength::Measured(rssi) if rssi >= -60 => icon_names::custom::RSSI_HIGH_SYMBOLIC,
-        SignalStrength::Measured(rssi) if rssi >= -70 => icon_names::custom::RSSI_MEDIUM_SYMBOLIC,
-        SignalStrength::Measured(rssi) if rssi >= -80 => icon_names::custom::RSSI_LOW_SYMBOLIC,
-        SignalStrength::Measured(rssi) if rssi >= -90 => icon_names::custom::RSSI_DEAD_SYMBOLIC,
-        SignalStrength::Measured(rssi) if rssi >= -100 => icon_names::custom::RSSI_NONE_SYMBOLIC,
-        SignalStrength::Measured(_) => icon_names::custom::RSSI_NOT_FOUND_SYMBOLIC,
+        SignalStrength::Measured(rssi) => SignalQuality::from_rssi(rssi).quality_icon_name(),
     }
 }
 

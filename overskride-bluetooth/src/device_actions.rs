@@ -109,7 +109,7 @@ async fn run_pairing_step(device: &bluer::Device, step: PairingStep) -> Result<(
         PairingStep::Bonding => confirm_bond(device).await?,
         PairingStep::Authorization => trust_device(device).await?,
         PairingStep::Connection => connect_after_pairing(device).await?,
-        PairingStep::InputDevice => {}
+        PairingStep::Signal | PairingStep::InputDevice => {}
     }
     Ok(())
 }
