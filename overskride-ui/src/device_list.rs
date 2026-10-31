@@ -15,7 +15,7 @@ use relm4::{ComponentParts, ComponentSender, RelmWidgetExt, prelude::*};
 
 use crate::device_status::{pairing_status_badge, signal_icon_name, symbolic_device_icon_name};
 
-const HIDE_UNKNOWN_FILTER_INDEX: usize = 0;
+const NAMED_ONLY_FILTER_INDEX: usize = 0;
 const NAMELESS_SECTION_TITLE: &str = "Without a Name";
 const NAMELESS_SECTION_EXPLANATION: &str = "These devices don't broadcast a name, often to protect the privacy of their owner.\n\nThe shown type is a guess based on what they do broadcast: the manufacturer ID and its payload, the advertised services, and the appearance value. Open a device to see what the guess was based on.\n\nDevices with a random address change it every few minutes, so one device can show up more than once.";
 
@@ -211,25 +211,37 @@ fn install_name_sections(device_list_view: &gtk::ListView) {
     device_list_view.set_header_factory(Some(&header_factory));
 }
 
+fn describe_hidden_unnamed(unnamed_device_count: usize) -> String {
+    if unnamed_device_count == 1 {
+        "1 device without a name is hidden".to_string()
+    } else {
+        format!("{unnamed_device_count} devices without a name are hidden")
+    }
+}
+
 pub struct DeviceListSource {
     pub session: BluetoothSession,
     pub adapter_name: String,
-    pub hide_unknown_devices: bool,
+    pub show_unnamed_devices: bool,
 }
 
 pub struct DeviceList {
     device_rows: TypedListView<DeviceRowItem, gtk::NoSelection>,
+    show_unnamed_devices: bool,
+    unnamed_device_count: usize,
 }
 
 #[derive(Debug)]
 pub enum DeviceListInput {
-    HideUnknownDevices(bool),
+    ShowUnnamedDevices(bool),
+    ShowUnnamedRequested,
     Activated(u32),
 }
 
 #[derive(Debug)]
 pub enum DeviceListOutput {
     Opened(DeviceSnapshot),
+    ShowUnnamedRequested,
     Changed(DeviceChange),
     Unavailable(BluetoothError),
 }
@@ -253,6 +265,18 @@ impl DeviceList {
         self.device_rows.append(DeviceRowItem { snapshot });
     }
 
+    fn count_unnamed_devices(&mut self) {
+        self.unnamed_device_count = self
+            .device_rows
+            .iter()
+            .filter(|device_row| !device_row.borrow().snapshot.has_meaningful_name())
+            .count();
+    }
+
+    fn hides_unnamed_devices(&self) -> bool {
+        !self.show_unnamed_devices && self.unnamed_device_count > 0
+    }
+
     fn apply_change(&mut self, device_change: &DeviceChange) {
         match device_change {
             DeviceChange::Appeared(snapshot) | DeviceChange::Updated(snapshot) => {
@@ -264,6 +288,7 @@ impl DeviceList {
                 }
             }
         }
+        self.count_unnamed_devices();
     }
 }
 
@@ -297,6 +322,30 @@ impl Component for DeviceList {
                     sender.input(DeviceListInput::Activated(position));
                 },
             },
+
+            gtk::Box {
+                set_spacing: 6,
+                set_margin_vertical: 8,
+                set_margin_horizontal: 12,
+                #[watch]
+                set_visible: model.hides_unnamed_devices(),
+
+                gtk::Label {
+                    set_xalign: 0.0,
+                    set_hexpand: true,
+                    set_wrap: true,
+                    set_css_classes: &["dim-label", "caption"],
+                    #[watch]
+                    set_label: &describe_hidden_unnamed(model.unnamed_device_count),
+                },
+
+                gtk::Button {
+                    set_label: "Show",
+                    set_valign: gtk::Align::Center,
+                    set_css_classes: &["flat", "caption"],
+                    connect_clicked => DeviceListInput::ShowUnnamedRequested,
+                },
+            },
         }
     }
 
@@ -307,11 +356,12 @@ impl Component for DeviceList {
     ) -> ComponentParts<Self> {
         let mut device_rows = TypedListView::with_sorting();
         device_rows.add_filter(|row: &DeviceRowItem| row.snapshot.has_meaningful_name());
-        device_rows.set_filter_status(
-            HIDE_UNKNOWN_FILTER_INDEX,
-            device_source.hide_unknown_devices,
-        );
-        let model = Self { device_rows };
+        device_rows.set_filter_status(NAMED_ONLY_FILTER_INDEX, !device_source.show_unnamed_devices);
+        let model = Self {
+            device_rows,
+            show_unnamed_devices: device_source.show_unnamed_devices,
+            unnamed_device_count: 0,
+        };
         let device_list_view = &model.device_rows.view;
         install_name_sections(device_list_view);
         let widgets = view_output!();
@@ -346,9 +396,13 @@ impl Component for DeviceList {
 
     fn update(&mut self, input: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match input {
-            DeviceListInput::HideUnknownDevices(hide_unknown_devices) => {
+            DeviceListInput::ShowUnnamedDevices(show_unnamed_devices) => {
+                self.show_unnamed_devices = show_unnamed_devices;
                 self.device_rows
-                    .set_filter_status(HIDE_UNKNOWN_FILTER_INDEX, hide_unknown_devices);
+                    .set_filter_status(NAMED_ONLY_FILTER_INDEX, !show_unnamed_devices);
+            }
+            DeviceListInput::ShowUnnamedRequested => {
+                let _app_gone = sender.output(DeviceListOutput::ShowUnnamedRequested);
             }
             DeviceListInput::Activated(visible_position) => {
                 let Some(activated_row) = self.device_rows.get_visible(visible_position) else {

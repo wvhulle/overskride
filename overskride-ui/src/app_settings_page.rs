@@ -78,10 +78,10 @@ impl SimpleComponent for AppSettingsPage {
                 adw::PreferencesGroup {
                     set_title: "Device List",
 
-                    #[name = "hide_unknown_row"]
+                    #[name = "show_unnamed_row"]
                     adw::SwitchRow {
-                        set_title: "Hide Unknown Devices",
-                        set_subtitle: "Devices without a name stay out of the device list",
+                        set_title: "Show Unnamed Devices",
+                        set_subtitle: "Also list devices that don't broadcast a name. They are rarely ready to pair.",
                     },
                 },
             },
@@ -112,7 +112,7 @@ impl SimpleComponent for AppSettingsPage {
             .bind("first-auto-accept", &widgets.keep_accepting_row, "active")
             .build();
         settings
-            .bind("hide-unknown-devices", &widgets.hide_unknown_row, "active")
+            .bind("show-unnamed-devices", &widgets.show_unnamed_row, "active")
             .build();
 
         ComponentParts { model, widgets }

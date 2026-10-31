@@ -33,9 +33,9 @@
 			<default>false</default>
 			<summary>accepts incoming files from trusted devices without asking</summary>
 		</key>
-		<key name="hide-unknown-devices" type="b">
+		<key name="show-unnamed-devices" type="b">
 			<default>false</default>
-			<summary>hides unknown devices from the device list</summary>
+			<summary>lists devices that don't broadcast a name</summary>
 		</key>
 	</schema>
 </schemalist>

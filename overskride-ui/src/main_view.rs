@@ -91,7 +91,7 @@ pub enum MainViewInput {
     ShowAppSettings,
     BackToSidebar,
     RefreshDevices,
-    HideUnknownDevices(bool),
+    ShowUnnamedDevices(bool),
     DeviceList(DeviceListOutput),
     DevicePage(DevicePageOutput),
     AdapterPage(AdapterPageOutput),
@@ -123,7 +123,7 @@ fn launch_device_list(
         .launch(DeviceListSource {
             session: session.clone(),
             adapter_name: adapter_name.to_string(),
-            hide_unknown_devices: preferences.hide_unknown_devices(),
+            show_unnamed_devices: preferences.show_unnamed_devices(),
         })
         .forward(sender.input_sender(), MainViewInput::DeviceList)
 }
@@ -278,6 +278,9 @@ impl MainView {
         match device_list_output {
             DeviceListOutput::Opened(snapshot) => self.open_device(snapshot, sender),
             DeviceListOutput::Changed(device_change) => self.forward_device_change(device_change),
+            DeviceListOutput::ShowUnnamedRequested => {
+                self.preferences.set_show_unnamed_devices(true);
+            }
             DeviceListOutput::Unavailable(subscription_error) => {
                 root.add_toast(adw::Toast::new(&subscription_error.to_string()));
             }
@@ -534,11 +537,11 @@ impl Component for MainView {
         device_list_slot.set_child(Some(device_list.widget()));
         content_slot.set_child(Some(&**adapter_page.widget()));
 
-        let hide_unknown_sender = sender.input_sender().clone();
+        let show_unnamed_sender = sender.input_sender().clone();
         preferences.settings().connect_changed(
-            Some("hide-unknown-devices"),
+            Some("show-unnamed-devices"),
             move |changed_settings, setting_key| {
-                hide_unknown_sender.emit(MainViewInput::HideUnknownDevices(
+                show_unnamed_sender.emit(MainViewInput::ShowUnnamedDevices(
                     changed_settings.boolean(setting_key),
                 ));
             },
@@ -632,9 +635,9 @@ impl Component for MainView {
                 self.device_list_slot
                     .set_child(Some(self.device_list.widget()));
             }
-            MainViewInput::HideUnknownDevices(hide_unknown_devices) => {
+            MainViewInput::ShowUnnamedDevices(show_unnamed_devices) => {
                 self.device_list
-                    .emit(DeviceListInput::HideUnknownDevices(hide_unknown_devices));
+                    .emit(DeviceListInput::ShowUnnamedDevices(show_unnamed_devices));
             }
             MainViewInput::DeviceList(device_list_output) => {
                 self.handle_device_list_output(device_list_output, root, &sender);

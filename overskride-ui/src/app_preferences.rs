@@ -43,8 +43,14 @@ impl AppPreferences {
         &self.settings
     }
 
-    pub fn hide_unknown_devices(&self) -> bool {
-        self.settings.boolean("hide-unknown-devices")
+    pub fn show_unnamed_devices(&self) -> bool {
+        self.settings.boolean("show-unnamed-devices")
+    }
+
+    pub fn set_show_unnamed_devices(&self, show_unnamed_devices: bool) {
+        let _unwritable_setting_is_not_fatal = self
+            .settings
+            .set_boolean("show-unnamed-devices", show_unnamed_devices);
     }
 
     pub fn auto_accept_from_trusted(&self) -> bool {
