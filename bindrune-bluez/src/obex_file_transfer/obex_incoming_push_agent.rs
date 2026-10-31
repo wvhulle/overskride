@@ -1,30 +1,21 @@
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 use bytesize::ByteSize;
-use dbus::{
-    arg::PropMap,
-    channel::MatchingReceiver,
-    message::MatchRule,
-    nonblock::{SyncConnection, stdintf::org_freedesktop_dbus::Properties},
-};
-use dbus_crossroads::{Crossroads, MethodErr};
 use futures::Stream;
 use tokio::sync::{mpsc, oneshot};
+use zbus::zvariant::{ObjectPath, OwnedObjectPath};
 
 use crate::{
     bluez_operation_error::BluetoothError,
     obex_file_transfer::{
-        obex_dbus_connection::{OBEX_MANAGER_PATH, ObexConnection},
-        obex_transfer_progress::{
-            ReceivedFileHandling, TRANSFER_INTERFACE, TransferHandle, property_size, property_text,
-        },
+        obex_dbus_connection::ObexConnection,
+        obex_dbus_proxies::{ObexAgentManagerProxy, ObexSessionProxy, ObexTransferProxy},
+        obex_transfer_progress::{ReceivedFileHandling, TransferHandle},
     },
 };
 
-const AGENT_OBJECT_PATH: &str = "/bindrune/agent";
-const AGENT_INTERFACE: &str = "org.bluez.obex.Agent1";
-const AGENT_MANAGER_INTERFACE: &str = "org.bluez.obex.AgentManager1";
-const SESSION_INTERFACE: &str = "org.bluez.obex.Session1";
+const AGENT_OBJECT_PATH: ObjectPath<'static> =
+    ObjectPath::from_static_str_unchecked("/bindrune/agent");
 
 #[derive(Debug)]
 pub struct IncomingTransfer {
@@ -32,14 +23,24 @@ pub struct IncomingTransfer {
     pub file_name: String,
     pub total_size: ByteSize,
     obex_connection: ObexConnection,
-    transfer_path: dbus::Path<'static>,
+    transfer_path: OwnedObjectPath,
     reply_channel: oneshot::Sender<()>,
 }
 
-#[derive(Clone)]
 struct PushForwarder {
     transfer_sender: mpsc::UnboundedSender<IncomingTransfer>,
     obex_connection: ObexConnection,
+}
+
+#[zbus::interface(name = "org.bluez.obex.Agent1")]
+impl PushForwarder {
+    async fn authorize_push(&self, transfer: OwnedObjectPath) -> Result<String, AgentReplyError> {
+        Ok(self.forward_push(transfer).await?)
+    }
+
+    fn cancel(&self) {}
+
+    fn release(&self) {}
 }
 
 impl ObexConnection {
@@ -47,73 +48,25 @@ impl ObexConnection {
         &self,
     ) -> Result<impl Stream<Item = IncomingTransfer> + Send + 'static, BluetoothError> {
         let (transfer_sender, mut transfer_receiver) = mpsc::unbounded_channel();
-        let mut crossroads = Crossroads::new();
-        let crossroads_connection: Arc<SyncConnection> = Arc::clone(&self.connection);
-        crossroads.set_async_support(Some((
-            crossroads_connection,
-            Box::new(|agent_future| {
-                tokio::spawn(agent_future);
-            }),
-        )));
-        let agent_interface = crossroads.register(AGENT_INTERFACE, |interface_builder| {
-            interface_builder.method_with_cr_async(
-                "AuthorizePush",
-                ("transfer",),
-                ("filename",),
-                |mut method_context, crossroads, (transfer_path,): (dbus::Path<'static>,)| {
-                    let push_forwarder = crossroads
-                        .data_mut::<PushForwarder>(method_context.path())
-                        .map(|push_forwarder| push_forwarder.clone());
-                    async move {
-                        let authorization = match push_forwarder {
-                            Some(push_forwarder) => {
-                                push_forwarder.authorize_push(transfer_path).await
-                            }
-                            None => Err(PushRefusal::NobodyListening),
-                        };
-                        method_context.reply(authorization.map_err(MethodErr::from))
-                    }
+        self.connection
+            .object_server()
+            .at(
+                &AGENT_OBJECT_PATH,
+                PushForwarder {
+                    transfer_sender,
+                    obex_connection: self.clone(),
                 },
-            );
-            interface_builder.method(
-                "Cancel",
-                (),
-                (),
-                |_method_context, _push_forwarder: &mut PushForwarder, (): ()| Ok(()),
-            );
-            interface_builder.method(
-                "Release",
-                (),
-                (),
-                |_method_context, _push_forwarder: &mut PushForwarder, (): ()| Ok(()),
-            );
-        });
-        crossroads.insert(
-            AGENT_OBJECT_PATH,
-            &[agent_interface],
-            PushForwarder {
-                transfer_sender,
-                obex_connection: self.clone(),
-            },
-        );
-        let receive_token = self.connection.start_receive(
-            MatchRule::new_method_call().with_path(AGENT_OBJECT_PATH),
-            Box::new(move |method_call, connection| {
-                let _unhandled_call_is_answered_by_crossroads =
-                    crossroads.handle_message(method_call, connection);
-                true
-            }),
-        );
-        self.proxy(OBEX_MANAGER_PATH)
-            .method_call::<(), _, _, _>(
-                AGENT_MANAGER_INTERFACE,
-                "RegisterAgent",
-                (dbus::Path::from(AGENT_OBJECT_PATH),),
             )
             .await?;
-        let registered_connection = self.clone();
+        let agent_registration = AgentRegistration {
+            obex_connection: self.clone(),
+        };
+        ObexAgentManagerProxy::new(&self.connection)
+            .await?
+            .register_agent(&AGENT_OBJECT_PATH)
+            .await?;
         Ok(async_stream::stream! {
-            let _agent_registration = AgentRegistration { obex_connection: registered_connection, receive_token };
+            let _agent_registration = agent_registration;
             while let Some(incoming_transfer) = transfer_receiver.recv().await {
                 yield incoming_transfer;
             }
@@ -123,25 +76,21 @@ impl ObexConnection {
 
 struct AgentRegistration {
     obex_connection: ObexConnection,
-    receive_token: dbus::channel::Token,
 }
 
 impl Drop for AgentRegistration {
     fn drop(&mut self) {
-        let _crossroads_handler = self
-            .obex_connection
-            .connection
-            .stop_receive(self.receive_token);
-        let unregistering_connection = self.obex_connection.clone();
+        let unregistering_connection = self.obex_connection.connection.clone();
         tokio::spawn(async move {
-            let _already_unregistered: Result<(), dbus::Error> = unregistering_connection
-                .proxy(OBEX_MANAGER_PATH)
-                .method_call(
-                    AGENT_MANAGER_INTERFACE,
-                    "UnregisterAgent",
-                    (dbus::Path::from(AGENT_OBJECT_PATH),),
-                )
+            let _already_removed: zbus::Result<bool> = unregistering_connection
+                .object_server()
+                .remove::<PushForwarder, _>(&AGENT_OBJECT_PATH)
                 .await;
+            let Ok(agent_manager) = ObexAgentManagerProxy::new(&unregistering_connection).await
+            else {
+                return;
+            };
+            let _already_unregistered = agent_manager.unregister_agent(&AGENT_OBJECT_PATH).await;
         });
     }
 }
@@ -156,67 +105,56 @@ enum PushRefusal {
     DeclinedByUser,
 }
 
-impl From<PushRefusal> for MethodErr {
+#[derive(Debug, zbus::DBusError)]
+#[zbus(prefix = "org.bluez.obex.Error")]
+enum AgentReplyError {
+    Failed(String),
+    Canceled(String),
+    Rejected(String),
+}
+
+impl From<PushRefusal> for AgentReplyError {
     fn from(push_refusal: PushRefusal) -> Self {
-        let (error_name, error_text) = match push_refusal {
-            PushRefusal::TransferUnreadable => (
-                "org.bluez.obex.Error.Failed",
-                "transfer properties are unreadable",
-            ),
-            PushRefusal::TransferWithoutName => {
-                ("org.bluez.obex.Error.Failed", "transfer has no name")
+        match push_refusal {
+            PushRefusal::TransferUnreadable => {
+                Self::Failed("transfer properties are unreadable".to_string())
             }
+            PushRefusal::TransferWithoutName => Self::Failed("transfer has no name".to_string()),
             PushRefusal::TransferWithoutSession => {
-                ("org.bluez.obex.Error.Failed", "transfer has no session")
+                Self::Failed("transfer has no session".to_string())
             }
-            PushRefusal::SessionWithoutSender => (
-                "org.bluez.obex.Error.Failed",
-                "session has no sender address",
-            ),
-            PushRefusal::NobodyListening => (
-                "org.bluez.obex.Error.Canceled",
-                "nobody listens for incoming transfers",
-            ),
-            PushRefusal::DeclinedByUser => ("org.bluez.obex.Error.Rejected", "Not Authorized"),
-        };
-        MethodErr::from((error_name, error_text))
+            PushRefusal::SessionWithoutSender => {
+                Self::Failed("session has no sender address".to_string())
+            }
+            PushRefusal::NobodyListening => {
+                Self::Canceled("nobody listens for incoming transfers".to_string())
+            }
+            PushRefusal::DeclinedByUser => Self::Rejected("Not Authorized".to_string()),
+        }
     }
 }
 
 impl PushForwarder {
-    async fn read_properties(
-        &self,
-        object_path: dbus::Path<'static>,
-        interface_name: &str,
-    ) -> Result<PropMap, PushRefusal> {
-        let Ok(object_properties) = self
-            .obex_connection
-            .proxy(object_path)
-            .get_all(interface_name)
+    async fn forward_push(&self, transfer_path: OwnedObjectPath) -> Result<String, PushRefusal> {
+        let connection = &self.obex_connection.connection;
+        let transfer_proxy = ObexTransferProxy::new(connection, transfer_path.clone())
             .await
-        else {
-            return Err(PushRefusal::TransferUnreadable);
-        };
-        Ok(object_properties)
-    }
-
-    async fn authorize_push(
-        &self,
-        transfer_path: dbus::Path<'static>,
-    ) -> Result<(String,), PushRefusal> {
-        let transfer_properties = self
-            .read_properties(transfer_path.clone(), TRANSFER_INTERFACE)
-            .await?;
-        let Some(file_name) = property_text(&transfer_properties, "Name") else {
-            return Err(PushRefusal::TransferWithoutName);
-        };
-        let Some(session_path) = property_text(&transfer_properties, "Session") else {
-            return Err(PushRefusal::TransferWithoutSession);
-        };
-        let session_properties = self
-            .read_properties(dbus::Path::from(session_path), SESSION_INTERFACE)
-            .await?;
-        let Some(sender_address) = property_text(&session_properties, "Destination")
+            .map_err(|_unreachable_transfer| PushRefusal::TransferUnreadable)?;
+        let file_name = transfer_proxy
+            .name()
+            .await
+            .map_err(|_missing_name| PushRefusal::TransferWithoutName)?;
+        let session_path = transfer_proxy
+            .session()
+            .await
+            .map_err(|_missing_session| PushRefusal::TransferWithoutSession)?;
+        let session_proxy = ObexSessionProxy::new(connection, session_path)
+            .await
+            .map_err(|_unreachable_session| PushRefusal::TransferWithoutSession)?;
+        let Some(sender_address) = session_proxy
+            .destination()
+            .await
+            .ok()
             .and_then(|destination_text| destination_text.parse().ok())
         else {
             return Err(PushRefusal::SessionWithoutSender);
@@ -225,7 +163,11 @@ impl PushForwarder {
         let incoming_transfer = IncomingTransfer {
             sender_address,
             file_name: file_name.clone(),
-            total_size: property_size(&transfer_properties, "Size").unwrap_or_default(),
+            total_size: transfer_proxy
+                .size()
+                .await
+                .map(ByteSize::b)
+                .unwrap_or_default(),
             obex_connection: self.obex_connection.clone(),
             transfer_path,
             reply_channel,
@@ -236,7 +178,7 @@ impl PushForwarder {
         if reply_receiver.await.is_err() {
             return Err(PushRefusal::DeclinedByUser);
         }
-        Ok((file_name,))
+        Ok(file_name)
     }
 }
 

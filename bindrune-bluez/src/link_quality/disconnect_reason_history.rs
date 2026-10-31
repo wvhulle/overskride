@@ -4,8 +4,8 @@ use std::{
     time::{Duration, Instant},
 };
 
-use dbus::message::MatchRule;
 use futures::{Stream, StreamExt, future};
+use zbus::{MatchRule, MessageStream, message::Type};
 
 use crate::bluez_operation_error::BluetoothError;
 
@@ -146,45 +146,38 @@ fn parse_device_path(object_path: &str) -> Option<(String, bluer::Address)> {
 
 pub async fn connection_drops()
 -> Result<impl Stream<Item = ConnectionDrop> + Send + 'static, BluetoothError> {
-    let (connection_resource, connection) = dbus_tokio::connection::new_system_sync()
-        .map_err(|_unavailable_bus| BluetoothError::SystemBusUnavailable)?;
-    let connection_task = tokio::spawn(connection_resource);
-    let disconnect_rule = MatchRule::new_signal(DEVICE_INTERFACE, DISCONNECTED_SIGNAL);
-    let (signal_match, disconnect_signals) = connection
-        .add_match(disconnect_rule)
+    let connection = zbus::Connection::system()
         .await
-        .map_err(|_refused_match| BluetoothError::SystemBusUnavailable)?
-        .stream::<(String, String)>();
-    let connection_drops =
-        disconnect_signals.filter_map(|(signal_message, (reason_name, _reason_message))| {
-            let observed_drop = signal_message
-                .path()
-                .and_then(|object_path| parse_device_path(&object_path))
-                .map(|(adapter_name, address)| ConnectionDrop {
-                    adapter_name,
-                    address,
-                    reason: DisconnectReason::from_bluez_reason(&reason_name),
-                    observed_at: Instant::now(),
-                });
-            future::ready(observed_drop)
-        });
-    Ok(async_stream::stream! {
-        let _signal_subscription = signal_match;
-        let _bus_connection = connection;
-        let _connection_task = AbortOnDrop(connection_task);
-        let mut connection_drops = std::pin::pin!(connection_drops);
-        while let Some(connection_drop) = connection_drops.next().await {
-            yield connection_drop;
-        }
-    })
+        .map_err(|_unavailable_bus| BluetoothError::SystemBusUnavailable)?;
+    let disconnect_rule = MatchRule::builder()
+        .msg_type(Type::Signal)
+        .interface(DEVICE_INTERFACE)
+        .and_then(|rule_builder| rule_builder.member(DISCONNECTED_SIGNAL))
+        .map_err(|_invalid_rule| BluetoothError::SystemBusUnavailable)?
+        .build();
+    let disconnect_signals = MessageStream::for_match_rule(disconnect_rule, &connection, None)
+        .await
+        .map_err(|_refused_match| BluetoothError::SystemBusUnavailable)?;
+    Ok(disconnect_signals.filter_map(|signal_message| {
+        future::ready(
+            signal_message
+                .ok()
+                .as_ref()
+                .and_then(connection_drop_from_signal),
+        )
+    }))
 }
 
-struct AbortOnDrop(tokio::task::JoinHandle<dbus_tokio::connection::IOResourceError>);
-
-impl Drop for AbortOnDrop {
-    fn drop(&mut self) {
-        self.0.abort();
-    }
+fn connection_drop_from_signal(signal_message: &zbus::Message) -> Option<ConnectionDrop> {
+    let (reason_name, _reason_message): (String, String) =
+        signal_message.body().deserialize().ok()?;
+    let (adapter_name, address) = parse_device_path(signal_message.header().path()?.as_str())?;
+    Some(ConnectionDrop {
+        adapter_name,
+        address,
+        reason: DisconnectReason::from_bluez_reason(&reason_name),
+        observed_at: Instant::now(),
+    })
 }
 
 #[cfg(test)]

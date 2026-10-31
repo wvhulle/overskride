@@ -160,9 +160,27 @@ impl From<bluer::ErrorKind> for BluezRequestFailure {
     }
 }
 
-impl From<&dbus::Error> for ObexServiceFailure {
-    fn from(dbus_error: &dbus::Error) -> Self {
-        match dbus_error.name().unwrap_or_default() {
+impl From<&zbus::Error> for ObexServiceFailure {
+    fn from(zbus_error: &zbus::Error) -> Self {
+        match zbus_error {
+            zbus::Error::MethodError(error_name, _error_text, _reply_message) => {
+                Self::from_error_name(error_name.as_str())
+            }
+            zbus::Error::FDO(fdo_error) => {
+                Self::from_error_name(zbus::DBusError::name(fdo_error.as_ref()).as_str())
+            }
+            zbus::Error::Address(_)
+            | zbus::Error::InputOutput(_)
+            | zbus::Error::Handshake(_)
+            | zbus::Error::Connection(..) => Self::SessionBusUnavailable,
+            _ => Self::Failed,
+        }
+    }
+}
+
+impl ObexServiceFailure {
+    fn from_error_name(error_name: &str) -> Self {
+        match error_name {
             "org.freedesktop.DBus.Error.NoServer"
             | "org.freedesktop.DBus.Error.FileNotFound"
             | "org.freedesktop.DBus.Error.Disconnected" => Self::SessionBusUnavailable,
@@ -207,9 +225,9 @@ impl From<bluer::Error> for BluetoothError {
     }
 }
 
-impl From<dbus::Error> for BluetoothError {
-    fn from(dbus_error: dbus::Error) -> Self {
-        Self::ObexService(ObexServiceFailure::from(&dbus_error))
+impl From<zbus::Error> for BluetoothError {
+    fn from(zbus_error: zbus::Error) -> Self {
+        Self::ObexService(ObexServiceFailure::from(&zbus_error))
     }
 }
 
@@ -488,10 +506,11 @@ mod tests {
 
     #[test]
     fn missing_obex_daemon_is_typed() {
-        let dbus_error =
-            dbus::Error::new_custom("org.freedesktop.DBus.Error.ServiceUnknown", "no obexd");
+        let zbus_error = zbus::Error::FDO(Box::new(zbus::fdo::Error::ServiceUnknown(
+            "no obexd".to_string(),
+        )));
         assert_eq!(
-            BluetoothError::from(dbus_error),
+            BluetoothError::from(zbus_error),
             BluetoothError::ObexService(ObexServiceFailure::ServiceMissing)
         );
     }

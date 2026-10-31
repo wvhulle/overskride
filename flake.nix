@@ -167,10 +167,6 @@
         };
     in
     {
-      overlays.default = final: _previous: {
-        bindrune = self.packages.${final.stdenv.hostPlatform.system}.default;
-      };
-
       homeManagerModules.default = import ./nix/home-manager-module.nix self;
 
       nixosModules.default = import ./nix/nixos-module.nix self;

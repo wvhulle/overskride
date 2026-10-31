@@ -1,18 +1,16 @@
 use std::path::{Path, PathBuf};
 
 use bytesize::ByteSize;
-use dbus::{
-    arg::{PropMap, RefArg},
-    message::MatchRule,
-    nonblock::stdintf::org_freedesktop_dbus::{Properties, PropertiesPropertiesChanged},
-};
 use futures::{Stream, StreamExt, future, stream};
+use zbus::zvariant::OwnedObjectPath;
 
 use crate::{
-    bluez_operation_error::BluetoothError, obex_file_transfer::obex_dbus_connection::ObexConnection,
+    bluez_operation_error::BluetoothError,
+    obex_file_transfer::{
+        obex_dbus_connection::ObexConnection, obex_dbus_proxies::ObexTransferProxy,
+    },
 };
 
-pub(super) const TRANSFER_INTERFACE: &str = "org.bluez.obex.Transfer1";
 const OBEXD_CACHE_FOLDER: &str = "obexd";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,7 +38,7 @@ pub(super) enum ReceivedFileHandling {
 #[derive(Clone, Debug)]
 pub struct TransferHandle {
     pub(super) obex_connection: ObexConnection,
-    pub(super) transfer_path: dbus::Path<'static>,
+    pub(super) transfer_path: OwnedObjectPath,
     pub file_name: String,
     pub total_size: ByteSize,
     pub(super) received_file_handling: ReceivedFileHandling,
@@ -56,26 +54,22 @@ fn parse_transfer_status(status_text: &str) -> TransferStatus {
     }
 }
 
-pub(super) fn property_text(properties: &PropMap, property_name: &str) -> Option<String> {
-    Some(properties.get(property_name)?.0.as_str()?.to_string())
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TransferPropertyUpdate {
+    Status(TransferStatus),
+    Transferred(ByteSize),
 }
 
-pub(super) fn property_size(properties: &PropMap, property_name: &str) -> Option<ByteSize> {
-    properties.get(property_name)?.0.as_u64().map(ByteSize::b)
-}
-
-fn apply_transfer_properties(
+fn apply_transfer_update(
     progress: TransferProgress,
-    changed_properties: &PropMap,
+    property_update: TransferPropertyUpdate,
 ) -> TransferProgress {
-    TransferProgress {
-        status: property_text(changed_properties, "Status")
-            .map_or(progress.status, |status_text| {
-                parse_transfer_status(&status_text)
-            }),
-        transferred_size: property_size(changed_properties, "Transferred")
-            .unwrap_or(progress.transferred_size),
-        total_size: property_size(changed_properties, "Size").unwrap_or(progress.total_size),
+    match property_update {
+        TransferPropertyUpdate::Status(status) => TransferProgress { status, ..progress },
+        TransferPropertyUpdate::Transferred(transferred_size) => TransferProgress {
+            transferred_size,
+            ..progress
+        },
     }
 }
 
@@ -110,11 +104,12 @@ impl TransferHandle {
         self.transfer_path.to_string()
     }
 
+    async fn transfer_proxy(&self) -> zbus::Result<ObexTransferProxy<'static>> {
+        ObexTransferProxy::new(&self.obex_connection.connection, self.transfer_path.clone()).await
+    }
+
     pub async fn cancel(&self) -> Result<(), BluetoothError> {
-        self.obex_connection
-            .proxy(self.transfer_path.clone())
-            .method_call::<(), _, _, _>(TRANSFER_INTERFACE, "Cancel", ())
-            .await?;
+        self.transfer_proxy().await?.cancel().await?;
         Ok(())
     }
 
@@ -138,96 +133,97 @@ impl TransferHandle {
     pub async fn progress(
         self,
     ) -> Result<impl Stream<Item = TransferProgress> + Send + 'static, BluetoothError> {
-        let property_rule =
-            MatchRule::new_signal("org.freedesktop.DBus.Properties", "PropertiesChanged")
-                .with_path(self.transfer_path.clone());
-        let (signal_match, property_signals) = self
-            .obex_connection
-            .connection
-            .add_match(property_rule)
-            .await?
-            .stream::<PropertiesPropertiesChanged>();
-        let initial_progress = match self
-            .obex_connection
-            .proxy(self.transfer_path.clone())
-            .get_all(TRANSFER_INTERFACE)
-            .await
-        {
-            Ok(transfer_properties) => apply_transfer_properties(
-                TransferProgress {
-                    status: TransferStatus::Queued,
-                    transferred_size: ByteSize::b(0),
-                    total_size: self.total_size,
-                },
-                &transfer_properties,
-            ),
-            Err(_transfer_already_gone) => TransferProgress {
+        let transfer_proxy = self.transfer_proxy().await?;
+        let Ok(status_text) = transfer_proxy.status().await else {
+            let finished_progress = TransferProgress {
                 status: TransferStatus::Complete,
                 transferred_size: self.total_size,
                 total_size: self.total_size,
-            },
-        };
-        let signal_updates = property_signals
-            .filter(|(_signal_message, properties_changed)| {
-                future::ready(properties_changed.interface_name == TRANSFER_INTERFACE)
-            })
-            .scan(
-                initial_progress,
-                |current_progress, (_signal_message, properties_changed)| {
-                    *current_progress = apply_transfer_properties(
-                        *current_progress,
-                        &properties_changed.changed_properties,
-                    );
-                    future::ready(Some(*current_progress))
-                },
+            };
+            return Ok(
+                stream::once(future::ready(self.finish_received_file(finished_progress))).boxed(),
             );
-        let progress_updates = stream::once(future::ready(initial_progress)).chain(signal_updates);
+        };
+        let initial_progress = TransferProgress {
+            status: parse_transfer_status(&status_text),
+            transferred_size: transfer_proxy
+                .transferred()
+                .await
+                .map(ByteSize::b)
+                .unwrap_or_default(),
+            total_size: transfer_proxy
+                .size()
+                .await
+                .map(ByteSize::b)
+                .unwrap_or(self.total_size),
+        };
+        let status_updates =
+            transfer_proxy
+                .receive_status_changed()
+                .await
+                .filter_map(|status_change| async move {
+                    let status_text = status_change.get().await.ok()?;
+                    Some(TransferPropertyUpdate::Status(parse_transfer_status(
+                        &status_text,
+                    )))
+                });
+        let transferred_updates = transfer_proxy
+            .receive_transferred_changed()
+            .await
+            .filter_map(|transferred_change| async move {
+                let transferred_bytes = transferred_change.get().await.ok()?;
+                Some(TransferPropertyUpdate::Transferred(ByteSize::b(
+                    transferred_bytes,
+                )))
+            });
+        let progress_updates = stream::select(status_updates, transferred_updates).scan(
+            initial_progress,
+            |current_progress, property_update| {
+                *current_progress = apply_transfer_update(*current_progress, property_update);
+                future::ready(Some(*current_progress))
+            },
+        );
         Ok(async_stream::stream! {
-            let _signal_subscription = signal_match;
-            let mut progress_updates = std::pin::pin!(progress_updates);
+            let _transfer_proxy = transfer_proxy;
+            let mut progress_updates = std::pin::pin!(
+                stream::once(future::ready(initial_progress)).chain(progress_updates)
+            );
+            let mut last_yielded_progress = None;
             while let Some(progress) = progress_updates.next().await {
+                if last_yielded_progress == Some(progress) {
+                    continue;
+                }
+                last_yielded_progress = Some(progress);
                 let finished = is_finished(progress.status);
                 yield self.finish_received_file(progress);
                 if finished {
                     break;
                 }
             }
-        })
+        }
+        .boxed())
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use dbus::arg::Variant;
-
     use super::*;
 
-    fn property_map(entries: Vec<(&str, Box<dyn RefArg>)>) -> PropMap {
-        entries
-            .into_iter()
-            .map(|(property_name, property_value)| {
-                (property_name.to_string(), Variant(property_value))
-            })
-            .collect()
-    }
-
     #[test]
-    fn transfer_properties_update_only_what_changed() {
+    fn transfer_updates_change_only_their_own_field() {
         let started = TransferProgress {
             status: TransferStatus::Queued,
             transferred_size: ByteSize::b(0),
             total_size: ByteSize::kb(2),
         };
-        let active = apply_transfer_properties(
+        let active = apply_transfer_update(
             started,
-            &property_map(vec![("Status", Box::new("active".to_string()))]),
+            TransferPropertyUpdate::Status(parse_transfer_status("active")),
         );
         assert_eq!(active.status, TransferStatus::Active);
         assert_eq!(active.total_size, ByteSize::kb(2));
-        let halfway = apply_transfer_properties(
-            active,
-            &property_map(vec![("Transferred", Box::new(1_000_u64))]),
-        );
+        let halfway =
+            apply_transfer_update(active, TransferPropertyUpdate::Transferred(ByteSize::kb(1)));
         assert_eq!(halfway.status, TransferStatus::Active);
         assert_eq!(halfway.transferred_size, ByteSize::kb(1));
     }

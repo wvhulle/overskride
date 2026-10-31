@@ -304,7 +304,7 @@ impl AsyncComponent for MainWindowShell {
 
         let content = match connect_bluetooth(&preferences).await {
             Ok(ready_bluetooth) => {
-                let obex = match ObexConnection::open() {
+                let obex = match ObexConnection::open().await {
                     Ok(obex_connection) => ObexAvailability::Available(obex_connection),
                     Err(_obex_missing) => ObexAvailability::Unavailable,
                 };

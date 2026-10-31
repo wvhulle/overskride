@@ -100,9 +100,6 @@ dependencies = [
  "async-stream",
  "bluer",
  "bytesize",
- "dbus",
- "dbus-crossroads",
- "dbus-tokio",
  "futures",
  "libc",
  "libpulse-binding",
@@ -110,6 +107,7 @@ dependencies = [
  "tokio",
  "udev",
  "uom",
+ "zbus",
 ]
 
 [[package]]
