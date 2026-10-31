@@ -1,2 +1,3 @@
+pub mod incoming_request_prompt_drafts;
 pub mod incoming_request_prompt_queue;
 pub mod prompt_dialog_and_notification_delivery;
