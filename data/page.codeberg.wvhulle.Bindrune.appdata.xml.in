@@ -49,16 +49,12 @@
   <launchable type="desktop-id">page.codeberg.wvhulle.Bindrune.desktop</launchable>
   <screenshots>
     <screenshot type="default">
-      <image>https://codeberg.org/wvhulle/bindrune/raw/branch/main/assets/images/bindrune.png</image>
-      <caption>multi-window screenshot of app</caption>
+      <image>https://codeberg.org/wvhulle/bindrune/raw/branch/screenshots/headset_pairing_timeline.png</image>
+      <caption>Pairing timeline of a connected headset</caption>
     </screenshot>
     <screenshot>
-      <image>https://codeberg.org/wvhulle/bindrune/raw/branch/main/assets/images/center.png</image>
-      <caption>main screen of app</caption>
-    </screenshot>
-    <screenshot>
-      <image>https://codeberg.org/wvhulle/bindrune/raw/branch/main/assets/images/left.png</image>
-      <caption>minimized form of connected device</caption>
+      <image>https://codeberg.org/wvhulle/bindrune/raw/branch/screenshots/adapter_overview.png</image>
+      <caption>Adapter settings and the device list</caption>
     </screenshot>
   </screenshots>
 </component>

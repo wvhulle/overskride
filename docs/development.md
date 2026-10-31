@@ -18,6 +18,8 @@ repository is a cargo workspace:
   `incoming_request_prompts/`. `background_application_lifecycle/` holds what
   draws nothing on screen: the window shell, tray menu, stored preferences and
   login autostart.
+- `bindrune-screenshot-showcase/` renders the README screenshots (binary
+  `render-readme-screenshots`).
 
 ## Component tree
 
@@ -76,6 +78,31 @@ by crate. The build itself stays on the stable toolchain from
 
 Woodpecker CI (`.woodpecker/checks.yaml`) builds the flake `checks` on pull
 requests and on pushes to `main`: tests and clippy (through the `wvhulle`
-Cachix cache on `main`), formatting, and the NixOS background service unit. On
+Cachix cache on `main`), formatting, and the NixOS background service unit.
+The screenshot pipeline is described under [Screenshots](#screenshots). On
 pull requests it also checks the commits against Conventional Commits
 (locally: `nix run --inputs-from . nixpkgs#convco -- check main..HEAD`).
+
+## Screenshots
+
+The README screenshots are rendered from the real application, not drawn by
+hand. `bindrune-screenshot-showcase` starts two isolated D-Bus buses and serves
+a fake BlueZ on the system bus with dbus-crossroads: one adapter and the
+fixture devices in `fake_bluez_fixture_devices.rs`. It then runs headless sway
+with the pixman renderer, launches `bindrune` for each screenshot (with
+`--open-device=ADDRESS` to open a device page), and captures the window with
+grim at scale 2.
+
+```bash
+nix run .#render-readme-screenshots -- screenshots   # renders into ./screenshots
+nix build .#readme-screenshots                       # the same, inside the Nix sandbox
+```
+
+A run outside the sandbox can pick up the local adapter's udev hardware
+description; the sandboxed build cannot, so it shows the adapter as `hci0`.
+
+After the checks pass on `main`, the `.woodpecker/readme-screenshots.yaml`
+pipeline renders them in the sandbox and force-pushes them as the single commit
+of the orphan `screenshots` branch, which the README and the metainfo embed.
+The push needs the `codeberg_token` secret.
+

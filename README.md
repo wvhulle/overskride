@@ -7,7 +7,12 @@ The name comes from the Bluetooth logo, a bindrune that joins the runes ᚼ and
 ᛒ, the initials of Harald Bluetooth. Bindrune is a hard fork of
 [Overskride](https://github.com/kaii-lb/overskride) by kaii.
 
-![Screenshot](/assets/images/bindrune.png)
+<img src="https://codeberg.org/wvhulle/bindrune/raw/branch/screenshots/headset_pairing_timeline.png" width="1100" alt="The pairing timeline of a connected headset, next to the device list">
+
+<img src="https://codeberg.org/wvhulle/bindrune/raw/branch/screenshots/adapter_overview.png" width="1100" alt="The adapter page with its power, pairing visibility and identity settings">
+
+The screenshots are rendered by CI from fixture devices, see
+[docs/development.md](docs/development.md#screenshots).
 
 ## What it does
 

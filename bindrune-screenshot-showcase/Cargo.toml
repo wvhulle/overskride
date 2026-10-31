@@ -1,0 +1,13 @@
+[package]
+name = "bindrune-screenshot-showcase"
+version = "0.6.5"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "render-readme-screenshots"
+path = "src/main.rs"
+
+[dependencies]
+dbus = "0.9.9"
+dbus-crossroads = "0.5.2"

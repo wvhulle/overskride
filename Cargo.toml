@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["bindrune-bluez", "bindrune-gtk"]
+members = ["bindrune-bluez", "bindrune-gtk", "bindrune-screenshot-showcase"]
 
 [patch.crates-io]
 bluer = { git = "https://github.com/wvhulle/bluer", rev = "7ceae9d120010a14cf6391871d782f3067ee1f94" }

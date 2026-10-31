@@ -179,10 +179,16 @@
         systemContext:
         let
           builtBindrune = bindruneBuild systemContext;
+          readmeScreenshotRendering = import ./nix/readme-screenshots.nix {
+            inherit (systemContext) pkgs craneLib;
+            inherit (builtBindrune) bindrune commonArgs cargoArtifacts;
+          };
         in
         {
           default = builtBindrune.bindrune;
           inherit (builtBindrune) bindrune;
+          render-readme-screenshots = readmeScreenshotRendering.renderReadmeScreenshots;
+          readme-screenshots = readmeScreenshotRendering.readmeScreenshots;
         }
       );
 
