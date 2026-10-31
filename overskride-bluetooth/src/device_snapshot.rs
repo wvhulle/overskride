@@ -9,8 +9,10 @@ use crate::service_names::describe_service;
 use crate::session::DeviceLocation;
 
 pub const UNKNOWN_DEVICE_NAME: &str = "Unknown Device";
-pub const OBJECT_PUSH_SERVICE: bluer::Uuid = bluer::Uuid::from_u128(0x0000_1105_0000_1000_8000_0080_5f9b_34fb);
-pub const HUMAN_INTERFACE_DEVICE_SERVICE: bluer::Uuid = bluer::Uuid::from_u128(0x0000_1124_0000_1000_8000_0080_5f9b_34fb);
+pub const OBJECT_PUSH_SERVICE: bluer::Uuid =
+    bluer::Uuid::from_u128(0x0000_1105_0000_1000_8000_0080_5f9b_34fb);
+pub const HUMAN_INTERFACE_DEVICE_SERVICE: bluer::Uuid =
+    bluer::Uuid::from_u128(0x0000_1124_0000_1000_8000_0080_5f9b_34fb);
 const FALLBACK_TRANSMIT_POWER: i16 = -59;
 const PATH_LOSS_EXPONENT: f32 = 3.0;
 
@@ -76,7 +78,9 @@ fn identify_manufacturer(manufacturer_data: &HashMap<u16, Vec<u8>>) -> Manufactu
         .keys()
         .max()
         .and_then(|company_identifier| bluer::id::Manufacturer::try_from(*company_identifier).ok())
-        .map_or(Manufacturer::Unknown, |manufacturer| Manufacturer::Identified(manufacturer.to_string()))
+        .map_or(Manufacturer::Unknown, |manufacturer| {
+            Manufacturer::Identified(manufacturer.to_string())
+        })
 }
 
 fn signal_strength_from(rssi: Option<i16>) -> SignalStrength {
@@ -96,14 +100,20 @@ pub fn alias_looks_like_address(alias: &str) -> bool {
 }
 
 impl DeviceSnapshot {
-    pub(crate) async fn read(device: &bluer::Device, location: DeviceLocation) -> Result<Self, BluetoothError> {
+    pub(crate) async fn read(
+        device: &bluer::Device,
+        location: DeviceLocation,
+    ) -> Result<Self, BluetoothError> {
         let paired = device.is_paired().await?;
         let connected = device.is_connected().await?;
         Ok(Self {
             alias: device.alias().await?,
             icon_name: device.icon().await?.unwrap_or_default(),
             signal_strength: signal_strength_from(device.rssi().await?),
-            transmit_power: device.tx_power().await?.map_or(TransmitPower::Unknown, TransmitPower::Reported),
+            transmit_power: device
+                .tx_power()
+                .await?
+                .map_or(TransmitPower::Unknown, TransmitPower::Reported),
             reported_battery: device
                 .battery_percentage()
                 .await?
@@ -115,9 +125,19 @@ impl DeviceSnapshot {
             blocked: device.is_blocked().await?,
             legacy_pairing: device.is_legacy_pairing().await?,
             address_type: device.address_type().await?.to_string(),
-            device_class: device.class().await?.map_or(DeviceClass::Unknown, DeviceClass::Reported),
-            services: device.uuids().await?.unwrap_or_default().into_iter().collect(),
-            manufacturer: identify_manufacturer(&device.manufacturer_data().await?.unwrap_or_default()),
+            device_class: device
+                .class()
+                .await?
+                .map_or(DeviceClass::Unknown, DeviceClass::Reported),
+            services: device
+                .uuids()
+                .await?
+                .unwrap_or_default()
+                .into_iter()
+                .collect(),
+            manufacturer: identify_manufacturer(
+                &device.manufacturer_data().await?.unwrap_or_default(),
+            ),
             kernel_input: kernel_input_for(location.address, connected),
             location,
         })
@@ -128,7 +148,9 @@ impl DeviceSnapshot {
             DeviceProperty::Alias(alias) => self.alias = alias,
             DeviceProperty::Icon(icon_name) => self.icon_name = icon_name,
             DeviceProperty::Rssi(rssi) => self.signal_strength = SignalStrength::Measured(rssi),
-            DeviceProperty::TxPower(transmit_power) => self.transmit_power = TransmitPower::Reported(transmit_power),
+            DeviceProperty::TxPower(transmit_power) => {
+                self.transmit_power = TransmitPower::Reported(transmit_power);
+            }
             DeviceProperty::BatteryPercentage(battery_percent) => {
                 self.reported_battery = BatteryReading::Percentage(battery_percent);
             }
@@ -141,7 +163,9 @@ impl DeviceSnapshot {
             DeviceProperty::Trusted(trusted) => self.trusted = trusted,
             DeviceProperty::Blocked(blocked) => self.blocked = blocked,
             DeviceProperty::LegacyPairing(legacy_pairing) => self.legacy_pairing = legacy_pairing,
-            DeviceProperty::Class(device_class) => self.device_class = DeviceClass::Reported(device_class),
+            DeviceProperty::Class(device_class) => {
+                self.device_class = DeviceClass::Reported(device_class);
+            }
             DeviceProperty::Uuids(services) => self.services = services.into_iter().collect(),
             DeviceProperty::ManufacturerData(manufacturer_data) => {
                 self.manufacturer = identify_manufacturer(&manufacturer_data);
@@ -173,8 +197,12 @@ impl DeviceSnapshot {
 
     pub fn battery(&self) -> BatteryReading {
         match (self.reported_battery, &self.kernel_input) {
-            (BatteryReading::Percentage(battery_percent), _) => BatteryReading::Percentage(battery_percent),
-            (BatteryReading::Unknown, KernelInputBinding::Bound(kernel_input_devices)) => kernel_input_devices.battery,
+            (BatteryReading::Percentage(battery_percent), _) => {
+                BatteryReading::Percentage(battery_percent)
+            }
+            (BatteryReading::Unknown, KernelInputBinding::Bound(kernel_input_devices)) => {
+                kernel_input_devices.battery
+            }
             (BatteryReading::Unknown, KernelInputBinding::Absent) => BatteryReading::Unknown,
         }
     }
@@ -184,7 +212,8 @@ impl DeviceSnapshot {
     }
 
     pub fn is_input_device(&self) -> bool {
-        self.services.contains(&HUMAN_INTERFACE_DEVICE_SERVICE) || self.icon_name.starts_with("input-")
+        self.services.contains(&HUMAN_INTERFACE_DEVICE_SERVICE)
+            || self.icon_name.starts_with("input-")
     }
 
     pub fn offers_object_push(&self) -> bool {
@@ -192,7 +221,11 @@ impl DeviceSnapshot {
     }
 
     pub fn service_names(&self) -> Vec<String> {
-        self.services.iter().copied().filter_map(describe_service).collect()
+        self.services
+            .iter()
+            .copied()
+            .filter_map(describe_service)
+            .collect()
     }
 
     pub fn distance_estimate(&self) -> DistanceEstimate {
@@ -255,14 +288,20 @@ pub(crate) mod tests {
     #[test]
     fn applying_connected_requests_kernel_refresh() {
         let mut snapshot = sample_snapshot();
-        assert_eq!(snapshot.apply_property(DeviceProperty::Connected(true)), PropertyRelevance::ConnectionChanged);
+        assert_eq!(
+            snapshot.apply_property(DeviceProperty::Connected(true)),
+            PropertyRelevance::ConnectionChanged
+        );
         assert!(snapshot.connected);
     }
 
     #[test]
     fn applying_rssi_updates_signal_strength() {
         let mut snapshot = sample_snapshot();
-        assert_eq!(snapshot.apply_property(DeviceProperty::Rssi(-70)), PropertyRelevance::Displayed);
+        assert_eq!(
+            snapshot.apply_property(DeviceProperty::Rssi(-70)),
+            PropertyRelevance::Displayed
+        );
         assert_eq!(snapshot.signal_strength, SignalStrength::Measured(-70));
     }
 
@@ -277,11 +316,12 @@ pub(crate) mod tests {
     #[test]
     fn reported_battery_wins_over_kernel_battery() {
         let mut snapshot = sample_snapshot();
-        snapshot.kernel_input = KernelInputBinding::Bound(crate::kernel_input_devices::KernelInputDevices {
-            driver_name: "playstation".to_string(),
-            input_nodes: Vec::new(),
-            battery: BatteryReading::Percentage(40),
-        });
+        snapshot.kernel_input =
+            KernelInputBinding::Bound(crate::kernel_input_devices::KernelInputDevices {
+                driver_name: "playstation".to_string(),
+                input_nodes: Vec::new(),
+                battery: BatteryReading::Percentage(40),
+            });
         assert_eq!(snapshot.battery(), BatteryReading::Percentage(40));
         snapshot.reported_battery = BatteryReading::Percentage(80);
         assert_eq!(snapshot.battery(), BatteryReading::Percentage(80));

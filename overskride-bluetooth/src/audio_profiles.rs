@@ -48,7 +48,9 @@ fn card_name_for(address: bluer::Address) -> String {
 fn iterate_once(mainloop: &mut Mainloop) -> Result<(), AudioServerFailure> {
     match mainloop.iterate(true) {
         IterateResult::Success(_) => Ok(()),
-        IterateResult::Quit(_) | IterateResult::Err(_) => Err(AudioServerFailure::ContextUnavailable),
+        IterateResult::Quit(_) | IterateResult::Err(_) => {
+            Err(AudioServerFailure::ContextUnavailable)
+        }
     }
 }
 
@@ -67,7 +69,9 @@ fn connect_pulse() -> Result<PulseConnection, AudioServerFailure> {
         iterate_once(&mut mainloop)?;
         match context.get_state() {
             ContextState::Ready => return Ok(PulseConnection { mainloop, context }),
-            ContextState::Failed | ContextState::Terminated => return Err(AudioServerFailure::ContextUnavailable),
+            ContextState::Failed | ContextState::Terminated => {
+                return Err(AudioServerFailure::ContextUnavailable);
+            }
             _ => {}
         }
     }
@@ -88,10 +92,9 @@ fn query_audio_profiles(address: bluer::Address) -> Result<AudioProfiles, AudioS
     let collected_profiles: Rc<RefCell<Result<AudioProfiles, AudioServerFailure>>> =
         Rc::new(RefCell::new(Err(AudioServerFailure::CardNotFound)));
     let profile_sink = Rc::clone(&collected_profiles);
-    let operation = pulse_connection
-        .context
-        .introspect()
-        .get_card_info_by_name(&card_name_for(address), move |card_result| {
+    let operation = pulse_connection.context.introspect().get_card_info_by_name(
+        &card_name_for(address),
+        move |card_result| {
             let ListResult::Item(card_info) = card_result else {
                 return;
             };
@@ -117,20 +120,29 @@ fn query_audio_profiles(address: bluer::Address) -> Result<AudioProfiles, AudioS
                 active_profile,
                 available_profiles,
             });
-        });
+        },
+    );
     wait_for_operation(&mut pulse_connection, &operation)?;
     collected_profiles.replace(Err(AudioServerFailure::CardNotFound))
 }
 
-fn apply_audio_profile(address: bluer::Address, profile_name: &str) -> Result<(), AudioServerFailure> {
+fn apply_audio_profile(
+    address: bluer::Address,
+    profile_name: &str,
+) -> Result<(), AudioServerFailure> {
     let mut pulse_connection = connect_pulse()?;
     let profile_accepted = Rc::new(RefCell::new(false));
     let acceptance_sink = Rc::clone(&profile_accepted);
-    let operation = pulse_connection.context.introspect().set_card_profile_by_name(
-        &card_name_for(address),
-        profile_name,
-        Some(Box::new(move |accepted| *acceptance_sink.borrow_mut() = accepted)),
-    );
+    let operation = pulse_connection
+        .context
+        .introspect()
+        .set_card_profile_by_name(
+            &card_name_for(address),
+            profile_name,
+            Some(Box::new(move |accepted| {
+                *acceptance_sink.borrow_mut() = accepted;
+            })),
+        );
     wait_for_operation(&mut pulse_connection, &operation)?;
     if *profile_accepted.borrow() {
         Ok(())
@@ -143,7 +155,10 @@ pub async fn read_audio_profiles(address: bluer::Address) -> Result<AudioProfile
     Ok(tokio::task::spawn_blocking(move || query_audio_profiles(address)).await??)
 }
 
-pub async fn set_audio_profile(address: bluer::Address, profile_name: String) -> Result<(), BluetoothError> {
+pub async fn set_audio_profile(
+    address: bluer::Address,
+    profile_name: String,
+) -> Result<(), BluetoothError> {
     Ok(tokio::task::spawn_blocking(move || apply_audio_profile(address, &profile_name)).await??)
 }
 

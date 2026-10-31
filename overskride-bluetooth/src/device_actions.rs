@@ -1,4 +1,3 @@
-use futures::future::Either;
 use futures::{Stream, StreamExt, future, stream};
 
 use crate::bluetooth_error::BluetoothError;
@@ -13,15 +12,24 @@ const PAIRING_SEQUENCE: [PairingStep; 4] = [
     PairingStep::Connection,
 ];
 
-pub async fn read_device(session: &BluetoothSession, location: &DeviceLocation) -> Result<DeviceSnapshot, BluetoothError> {
+pub async fn read_device(
+    session: &BluetoothSession,
+    location: &DeviceLocation,
+) -> Result<DeviceSnapshot, BluetoothError> {
     DeviceSnapshot::read(&session.device(location)?, location.clone()).await
 }
 
-pub async fn connect_device(session: &BluetoothSession, location: &DeviceLocation) -> Result<(), BluetoothError> {
+pub async fn connect_device(
+    session: &BluetoothSession,
+    location: &DeviceLocation,
+) -> Result<(), BluetoothError> {
     Ok(session.device(location)?.connect().await?)
 }
 
-pub async fn disconnect_device(session: &BluetoothSession, location: &DeviceLocation) -> Result<(), BluetoothError> {
+pub async fn disconnect_device(
+    session: &BluetoothSession,
+    location: &DeviceLocation,
+) -> Result<(), BluetoothError> {
     Ok(session.device(location)?.disconnect().await?)
 }
 
@@ -35,8 +43,14 @@ pub async fn rename_device(
     Ok(device.alias().await?)
 }
 
-pub async fn forget_device(session: &BluetoothSession, location: &DeviceLocation) -> Result<(), BluetoothError> {
-    Ok(session.adapter(&location.adapter_name)?.remove_device(location.address).await?)
+pub async fn forget_device(
+    session: &BluetoothSession,
+    location: &DeviceLocation,
+) -> Result<(), BluetoothError> {
+    Ok(session
+        .adapter(&location.adapter_name)?
+        .remove_device(location.address)
+        .await?)
 }
 
 pub async fn set_connection_policy(
@@ -83,38 +97,34 @@ async fn run_pairing_step(device: &bluer::Device, step: PairingStep) -> Result<(
     Ok(())
 }
 
-fn pairing_step_progress(device: bluer::Device, step: PairingStep) -> impl Stream<Item = Option<PairingProgress>> {
+fn pairing_step_progress(
+    device: bluer::Device,
+    step: PairingStep,
+) -> impl Stream<Item = Option<PairingProgress>> {
     let step_outcome = async move {
         run_pairing_step(&device, step)
             .await
             .err()
             .map(|step_error| PairingProgress::Failed(step, step_error))
     };
-    stream::once(future::ready(Some(PairingProgress::Running(step)))).chain(stream::once(step_outcome))
+    stream::once(future::ready(Some(PairingProgress::Running(step))))
+        .chain(stream::once(step_outcome))
 }
 
 pub fn pair_trust_and_connect(
     session: &BluetoothSession,
     location: &DeviceLocation,
-) -> impl Stream<Item = PairingProgress> + Send + 'static {
-    let progress_events = match session.device(location) {
-        Ok(device) => Either::Left(
-            stream::iter(PAIRING_SEQUENCE)
-                .flat_map(move |step| pairing_step_progress(device.clone(), step))
-                .chain(stream::once(future::ready(Some(PairingProgress::Finished)))),
-        ),
-        Err(lookup_error) => Either::Right(stream::once(future::ready(Some(PairingProgress::Failed(
-            PairingStep::Pairing,
-            lookup_error,
-        ))))),
-    };
-    progress_events
-        .filter_map(future::ready)
-        .scan(false, |pairing_failed, progress| {
-            if *pairing_failed {
-                return future::ready(None);
-            }
-            *pairing_failed = matches!(progress, PairingProgress::Failed(..));
-            future::ready(Some(progress))
-        })
+) -> Result<impl Stream<Item = PairingProgress> + Send + 'static, BluetoothError> {
+    let device = session.device(location)?;
+    let progress_events = stream::iter(PAIRING_SEQUENCE)
+        .flat_map(move |step| pairing_step_progress(device.clone(), step))
+        .chain(stream::once(future::ready(Some(PairingProgress::Finished))))
+        .filter_map(future::ready);
+    Ok(progress_events.scan(false, |pairing_failed, progress| {
+        if *pairing_failed {
+            return future::ready(None);
+        }
+        *pairing_failed = matches!(progress, PairingProgress::Failed(..));
+        future::ready(Some(progress))
+    }))
 }

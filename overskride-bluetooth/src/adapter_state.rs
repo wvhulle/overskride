@@ -27,7 +27,8 @@ impl AdapterSnapshot {
             alias: adapter.alias().await?,
             powered: adapter.is_powered().await?,
             discoverable: adapter.is_discoverable().await?,
-            discoverable_timeout_minutes: adapter.discoverable_timeout().await? / SECONDS_PER_MINUTE,
+            discoverable_timeout_minutes: adapter.discoverable_timeout().await?
+                / SECONDS_PER_MINUTE,
         })
     }
 
@@ -45,7 +46,10 @@ impl AdapterSnapshot {
     }
 }
 
-pub async fn read_adapter(session: &BluetoothSession, adapter_name: &str) -> Result<AdapterSnapshot, BluetoothError> {
+pub async fn read_adapter(
+    session: &BluetoothSession,
+    adapter_name: &str,
+) -> Result<AdapterSnapshot, BluetoothError> {
     AdapterSnapshot::read(&session.adapter(adapter_name)?).await
 }
 
@@ -56,18 +60,23 @@ pub async fn adapter_changes(
     let adapter = session.adapter(adapter_name)?;
     let initial_snapshot = AdapterSnapshot::read(&adapter).await?;
     let adapter_events = adapter.events().await?;
-    let changed_snapshots = adapter_events.scan(initial_snapshot.clone(), |current_snapshot, adapter_event| {
-        let changed_snapshot = match adapter_event {
-            AdapterEvent::PropertyChanged(changed_property) => {
-                current_snapshot.apply_property(changed_property).then(|| current_snapshot.clone())
-            }
-            _ => None,
-        };
-        futures::future::ready(Some(changed_snapshot))
-    });
-    Ok(futures::stream::once(futures::future::ready(Some(initial_snapshot)))
-        .chain(changed_snapshots)
-        .filter_map(futures::future::ready))
+    let changed_snapshots = adapter_events.scan(
+        initial_snapshot.clone(),
+        |current_snapshot, adapter_event| {
+            let changed_snapshot = match adapter_event {
+                AdapterEvent::PropertyChanged(changed_property) => current_snapshot
+                    .apply_property(changed_property)
+                    .then(|| current_snapshot.clone()),
+                _ => None,
+            };
+            futures::future::ready(Some(changed_snapshot))
+        },
+    );
+    Ok(
+        futures::stream::once(futures::future::ready(Some(initial_snapshot)))
+            .chain(changed_snapshots)
+            .filter_map(futures::future::ready),
+    )
 }
 
 pub async fn set_powered(
@@ -96,7 +105,9 @@ pub async fn set_discoverable_timeout(
     timeout_minutes: u32,
 ) -> Result<AdapterSnapshot, BluetoothError> {
     let adapter = session.adapter(adapter_name)?;
-    adapter.set_discoverable_timeout(timeout_minutes * SECONDS_PER_MINUTE).await?;
+    adapter
+        .set_discoverable_timeout(timeout_minutes * SECONDS_PER_MINUTE)
+        .await?;
     AdapterSnapshot::read(&adapter).await
 }
 

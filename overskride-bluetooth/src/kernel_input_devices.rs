@@ -44,9 +44,14 @@ fn sorted_directory_entries(directory_path: &Path) -> Vec<PathBuf> {
 
 fn is_device_node_name(file_name: &str) -> bool {
     DEVICE_NODE_PREFIXES.iter().any(|node_prefix| {
-        file_name.strip_prefix(node_prefix).is_some_and(|node_number| {
-            !node_number.is_empty() && node_number.chars().all(|character| character.is_ascii_digit())
-        })
+        file_name
+            .strip_prefix(node_prefix)
+            .is_some_and(|node_number| {
+                !node_number.is_empty()
+                    && node_number
+                        .chars()
+                        .all(|character| character.is_ascii_digit())
+            })
     })
 }
 
@@ -54,7 +59,10 @@ fn read_battery_for_hid_device(hid_device_directory: &Path) -> Option<u8> {
     let power_supply_directory = sorted_directory_entries(Path::new(POWER_SUPPLY_CLASS_DIRECTORY))
         .into_iter()
         .find(|power_supply_directory| {
-            std::fs::canonicalize(power_supply_directory.join("device")).ok().as_deref() == Some(hid_device_directory)
+            std::fs::canonicalize(power_supply_directory.join("device"))
+                .ok()
+                .as_deref()
+                == Some(hid_device_directory)
         })?;
     let capacity_text = read_trimmed_attribute(&power_supply_directory.join("capacity"))?;
     capacity_text.parse().ok()
@@ -79,13 +87,15 @@ fn read_input_node(input_directory: &Path) -> KernelInputNode {
 
 pub fn find_kernel_input_devices(address: bluer::Address) -> KernelInputBinding {
     let address_text = address.to_string().to_lowercase();
-    let matching_input_directories: Vec<_> = sorted_directory_entries(Path::new(INPUT_CLASS_DIRECTORY))
-        .into_iter()
-        .filter(|input_directory| {
-            read_trimmed_attribute(&input_directory.join("uniq"))
-                .is_some_and(|unique_identifier| unique_identifier.to_lowercase() == address_text)
-        })
-        .collect();
+    let matching_input_directories: Vec<_> =
+        sorted_directory_entries(Path::new(INPUT_CLASS_DIRECTORY))
+            .into_iter()
+            .filter(|input_directory| {
+                read_trimmed_attribute(&input_directory.join("uniq")).is_some_and(
+                    |unique_identifier| unique_identifier.to_lowercase() == address_text,
+                )
+            })
+            .collect();
     if matching_input_directories.is_empty() {
         return KernelInputBinding::Absent;
     }
@@ -101,11 +111,16 @@ pub fn find_kernel_input_devices(address: bluer::Address) -> KernelInputBinding 
     let battery = hid_device_directories
         .iter()
         .find_map(|hid_device_directory| read_battery_for_hid_device(hid_device_directory))
-        .map_or(BatteryReading::Unknown, |battery_percent| BatteryReading::Percentage(battery_percent.min(100)));
+        .map_or(BatteryReading::Unknown, |battery_percent| {
+            BatteryReading::Percentage(battery_percent.min(100))
+        });
 
     KernelInputBinding::Bound(KernelInputDevices {
         driver_name,
-        input_nodes: matching_input_directories.iter().map(|input_directory| read_input_node(input_directory)).collect(),
+        input_nodes: matching_input_directories
+            .iter()
+            .map(|input_directory| read_input_node(input_directory))
+            .collect(),
         battery,
     })
 }

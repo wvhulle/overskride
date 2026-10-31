@@ -114,7 +114,10 @@ mod tests {
 
     #[test]
     fn unpaired_device_misses_pairing_first() {
-        assert_eq!(first_missing_step(&sample_snapshot()), Some(PairingStep::Pairing));
+        assert_eq!(
+            first_missing_step(&sample_snapshot()),
+            Some(PairingStep::Pairing)
+        );
     }
 
     #[test]
@@ -131,7 +134,10 @@ mod tests {
         snapshot.bonded = true;
         snapshot.trusted = true;
         snapshot.connected = true;
-        assert_eq!(first_missing_step(&snapshot), Some(PairingStep::InputDevice));
+        assert_eq!(
+            first_missing_step(&snapshot),
+            Some(PairingStep::InputDevice)
+        );
     }
 
     #[test]

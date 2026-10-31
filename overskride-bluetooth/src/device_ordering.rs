@@ -14,9 +14,20 @@ pub fn compare_devices(first_device: &DeviceSnapshot, second_device: &DeviceSnap
         .connected
         .cmp(&first_device.connected)
         .then_with(|| second_device.paired.cmp(&first_device.paired))
-        .then_with(|| second_device.has_meaningful_name().cmp(&first_device.has_meaningful_name()))
-        .then_with(|| signal_rank(second_device.signal_strength).cmp(&signal_rank(first_device.signal_strength)))
-        .then_with(|| first_device.display_name().cmp(second_device.display_name()))
+        .then_with(|| {
+            second_device
+                .has_meaningful_name()
+                .cmp(&first_device.has_meaningful_name())
+        })
+        .then_with(|| {
+            signal_rank(second_device.signal_strength)
+                .cmp(&signal_rank(first_device.signal_strength))
+        })
+        .then_with(|| {
+            first_device
+                .display_name()
+                .cmp(second_device.display_name())
+        })
         .then_with(|| first_device.address().cmp(&second_device.address()))
 }
 
@@ -37,7 +48,10 @@ mod tests {
         let mut connected_device = named_snapshot("Zebra", 1);
         connected_device.connected = true;
         let idle_device = named_snapshot("Aardvark", 2);
-        assert_eq!(compare_devices(&connected_device, &idle_device), Ordering::Less);
+        assert_eq!(
+            compare_devices(&connected_device, &idle_device),
+            Ordering::Less
+        );
     }
 
     #[test]
@@ -53,14 +67,23 @@ mod tests {
     fn unnamed_devices_sort_after_named_ones() {
         let named_device = named_snapshot("Speaker", 1);
         let unnamed_device = named_snapshot("00-00-00-00-00-02", 2);
-        assert_eq!(compare_devices(&named_device, &unnamed_device), Ordering::Less);
+        assert_eq!(
+            compare_devices(&named_device, &unnamed_device),
+            Ordering::Less
+        );
     }
 
     #[test]
     fn ordering_is_total_for_equal_devices() {
         let first_device = named_snapshot("Same", 1);
         let second_device = named_snapshot("Same", 2);
-        assert_eq!(compare_devices(&first_device, &second_device), Ordering::Less);
-        assert_eq!(compare_devices(&first_device, &first_device), Ordering::Equal);
+        assert_eq!(
+            compare_devices(&first_device, &second_device),
+            Ordering::Less
+        );
+        assert_eq!(
+            compare_devices(&first_device, &first_device),
+            Ordering::Equal
+        );
     }
 }

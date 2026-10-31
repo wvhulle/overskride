@@ -27,6 +27,8 @@ pub async fn start_discovery(
         .await?;
     let discovery_events = adapter.discover_devices().await?;
     Ok(DiscoverySession {
-        discovery_task: tokio::spawn(discovery_events.for_each(|_discovery_event| futures::future::ready(()))),
+        discovery_task: tokio::spawn(
+            discovery_events.for_each(|_discovery_event| futures::future::ready(())),
+        ),
     })
 }

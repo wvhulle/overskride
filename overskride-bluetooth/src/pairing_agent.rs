@@ -73,10 +73,20 @@ impl ServiceAuthorizationRequest {
 #[derive(Debug)]
 pub enum PairingRequest {
     PinCode(PinCodeRequest),
-    DisplayPinCode { requester: DeviceLocation, pin_code: String },
+    DisplayPinCode {
+        requester: DeviceLocation,
+        pin_code: String,
+    },
     Passkey(PasskeyRequest),
-    DisplayPasskey { requester: DeviceLocation, passkey: u32, entered_digits: u16 },
-    Confirmation { approval: ApprovalRequest, passkey: u32 },
+    DisplayPasskey {
+        requester: DeviceLocation,
+        passkey: u32,
+        entered_digits: u16,
+    },
+    Confirmation {
+        approval: ApprovalRequest,
+        passkey: u32,
+    },
     Authorization(ApprovalRequest),
     ServiceAuthorization(ServiceAuthorizationRequest),
 }
@@ -88,9 +98,14 @@ impl PairingRequest {
             | Self::DisplayPinCode { requester, .. }
             | Self::Passkey(PasskeyRequest { requester, .. })
             | Self::DisplayPasskey { requester, .. }
-            | Self::Confirmation { approval: ApprovalRequest { requester, .. }, .. }
+            | Self::Confirmation {
+                approval: ApprovalRequest { requester, .. },
+                ..
+            }
             | Self::Authorization(ApprovalRequest { requester, .. })
-            | Self::ServiceAuthorization(ServiceAuthorizationRequest { requester, .. }) => requester,
+            | Self::ServiceAuthorization(ServiceAuthorizationRequest { requester, .. }) => {
+                requester
+            }
         }
     }
 }
@@ -111,10 +126,15 @@ fn requester_location(adapter_name: &str, address: bluer::Address) -> DeviceLoca
 
 impl RequestForwarder {
     fn forward(&self, pairing_request: PairingRequest) -> ReqResult<()> {
-        self.request_sender.send(pairing_request).map_err(|_| ReqError::Canceled)
+        self.request_sender
+            .send(pairing_request)
+            .map_err(|_| ReqError::Canceled)
     }
 
-    async fn await_reply<ReplyType>(&self, reply_receiver: oneshot::Receiver<ReplyType>) -> ReqResult<ReplyType> {
+    async fn await_reply<ReplyType>(
+        &self,
+        reply_receiver: oneshot::Receiver<ReplyType>,
+    ) -> ReqResult<ReplyType> {
         reply_receiver.await.map_err(|_| ReqError::Rejected)
     }
 
@@ -186,12 +206,15 @@ impl RequestForwarder {
     async fn authorize_service(self, request: bluer::agent::AuthorizeService) -> ReqResult<()> {
         let requester = requester_location(&request.adapter, request.device);
         let (reply_channel, reply_receiver) = oneshot::channel();
-        self.forward(PairingRequest::ServiceAuthorization(ServiceAuthorizationRequest {
-            requester: requester.clone(),
-            service: request.service,
-            reply_channel,
-        }))?;
-        let Ok(reply) = tokio::time::timeout(SERVICE_AUTHORIZATION_TIMEOUT, reply_receiver).await else {
+        self.forward(PairingRequest::ServiceAuthorization(
+            ServiceAuthorizationRequest {
+                requester: requester.clone(),
+                service: request.service,
+                reply_channel,
+            },
+        ))?;
+        let Ok(reply) = tokio::time::timeout(SERVICE_AUTHORIZATION_TIMEOUT, reply_receiver).await
+        else {
             return Err(ReqError::Rejected);
         };
         match reply.map_err(|_| ReqError::Rejected)? {
@@ -215,11 +238,15 @@ fn build_agent(request_forwarder: &RequestForwarder) -> Agent {
     let service_forwarder = request_forwarder.clone();
     Agent {
         request_default: true,
-        request_pin_code: Some(Box::new(move |request| pin_code_forwarder.clone().request_pin_code(request).boxed())),
+        request_pin_code: Some(Box::new(move |request| {
+            pin_code_forwarder.clone().request_pin_code(request).boxed()
+        })),
         display_pin_code: Some(Box::new(move |request| {
             futures::future::ready(display_pin_forwarder.display_pin_code(request)).boxed()
         })),
-        request_passkey: Some(Box::new(move |request| passkey_forwarder.clone().request_passkey(request).boxed())),
+        request_passkey: Some(Box::new(move |request| {
+            passkey_forwarder.clone().request_passkey(request).boxed()
+        })),
         display_passkey: Some(Box::new(move |request| {
             futures::future::ready(display_passkey_forwarder.display_passkey(&request)).boxed()
         })),
@@ -227,18 +254,24 @@ fn build_agent(request_forwarder: &RequestForwarder) -> Agent {
             let passkey = request.passkey;
             confirmation_forwarder
                 .clone()
-                .request_approval(requester_location(&request.adapter, request.device), move |approval| {
-                    PairingRequest::Confirmation { approval, passkey }
-                })
+                .request_approval(
+                    requester_location(&request.adapter, request.device),
+                    move |approval| PairingRequest::Confirmation { approval, passkey },
+                )
                 .boxed()
         })),
         request_authorization: Some(Box::new(move |request| {
             authorization_forwarder
                 .clone()
-                .request_approval(requester_location(&request.adapter, request.device), PairingRequest::Authorization)
+                .request_approval(
+                    requester_location(&request.adapter, request.device),
+                    PairingRequest::Authorization,
+                )
                 .boxed()
         })),
-        authorize_service: Some(Box::new(move |request| service_forwarder.clone().authorize_service(request).boxed())),
+        authorize_service: Some(Box::new(move |request| {
+            service_forwarder.clone().authorize_service(request).boxed()
+        })),
         ..Default::default()
     }
 }
@@ -253,7 +286,10 @@ pub async fn pairing_requests(
         request_sender,
         policy,
     };
-    let agent_handle = session.bluez_session().register_agent(build_agent(&request_forwarder)).await?;
+    let agent_handle = session
+        .bluez_session()
+        .register_agent(build_agent(&request_forwarder))
+        .await?;
     Ok(async_stream::stream! {
         let _registered_agent = agent_handle;
         while let Some(pairing_request) = request_receiver.recv().await {

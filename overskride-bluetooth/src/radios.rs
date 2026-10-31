@@ -13,16 +13,27 @@ fn read_trimmed_attribute(attribute_path: &Path) -> Option<String> {
 }
 
 fn find_usb_product_name(adapter_name: &str) -> Option<String> {
-    let device_directory = std::fs::canonicalize(PathBuf::from("/sys/class/bluetooth").join(adapter_name).join("device")).ok()?;
+    let device_directory = std::fs::canonicalize(
+        PathBuf::from("/sys/class/bluetooth")
+            .join(adapter_name)
+            .join("device"),
+    )
+    .ok()?;
 
-    device_directory.ancestors().take(3).find_map(|candidate_directory| {
-        let product_name = read_trimmed_attribute(&candidate_directory.join("product"))?;
-        let manufacturer_name = read_trimmed_attribute(&candidate_directory.join("manufacturer"));
-        Some(match manufacturer_name {
-            Some(manufacturer_name) if !product_name.starts_with(&manufacturer_name) => format!("{manufacturer_name} {product_name}"),
-            _ => product_name,
+    device_directory
+        .ancestors()
+        .take(3)
+        .find_map(|candidate_directory| {
+            let product_name = read_trimmed_attribute(&candidate_directory.join("product"))?;
+            let manufacturer_name =
+                read_trimmed_attribute(&candidate_directory.join("manufacturer"));
+            Some(match manufacturer_name {
+                Some(manufacturer_name) if !product_name.starts_with(&manufacturer_name) => {
+                    format!("{manufacturer_name} {product_name}")
+                }
+                _ => product_name,
+            })
         })
-    })
 }
 
 pub fn describe_radio(adapter_name: &str) -> String {

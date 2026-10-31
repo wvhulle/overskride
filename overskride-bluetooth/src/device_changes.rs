@@ -61,16 +61,28 @@ impl DeviceSnapshots {
     async fn add_device(
         &mut self,
         address: bluer::Address,
-    ) -> Result<SubscribedDevice<impl Stream<Item = AddressedDeviceEvent> + Unpin + use<>>, BluetoothError> {
+    ) -> Result<
+        SubscribedDevice<impl Stream<Item = AddressedDeviceEvent> + Unpin + use<>>,
+        BluetoothError,
+    > {
         let device = self.adapter.device(address)?;
         let location = DeviceLocation {
             adapter_name: self.adapter.name().to_string(),
             address,
         };
         let snapshot = DeviceSnapshot::read(&device, location).await?;
-        let device_events = device.events().await?.map(move |device_event| AddressedDeviceEvent { address, device_event });
+        let device_events = device
+            .events()
+            .await?
+            .map(move |device_event| AddressedDeviceEvent {
+                address,
+                device_event,
+            });
         self.snapshots.insert(address, snapshot.clone());
-        Ok(SubscribedDevice { snapshot, device_events })
+        Ok(SubscribedDevice {
+            snapshot,
+            device_events,
+        })
     }
 
     async fn react_to_adapter_event(
@@ -124,7 +136,11 @@ pub async fn device_changes(
 ) -> Result<impl Stream<Item = DeviceChange> + Send + 'static, BluetoothError> {
     let adapter = session.adapter(adapter_name)?;
     let known_device_events = futures::stream::iter(
-        adapter.device_addresses().await?.into_iter().map(AdapterEvent::DeviceAdded),
+        adapter
+            .device_addresses()
+            .await?
+            .into_iter()
+            .map(AdapterEvent::DeviceAdded),
     );
     let adapter_events = known_device_events.chain(adapter.events().await?);
 

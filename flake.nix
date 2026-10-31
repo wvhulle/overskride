@@ -59,7 +59,6 @@
             strictDeps = true;
             nativeBuildInputs = with pkgs; [
               pkg-config
-              blueprint-compiler
               glib
               libxml2
             ];

@@ -22,7 +22,11 @@ impl fmt::Display for BluetoothError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Bluez(bluez_error) => write!(formatter, "{}", bluez_error.message),
-            Self::Dbus(dbus_error) => write!(formatter, "{}", dbus_error.message().unwrap_or("D-Bus call failed")),
+            Self::Dbus(dbus_error) => write!(
+                formatter,
+                "{}",
+                dbus_error.message().unwrap_or("D-Bus call failed")
+            ),
             Self::Filesystem(io_error) => write!(formatter, "{io_error}"),
             Self::AudioServer(audio_failure) => write!(formatter, "{audio_failure}"),
             Self::MissingLinkKey => write!(
@@ -33,7 +37,10 @@ impl fmt::Display for BluetoothError {
                 formatter,
                 "Trust can't be saved: this device is paired but not bonded (no stored link key). Use Pair Again."
             ),
-            Self::BackgroundTaskStopped => write!(formatter, "A background Bluetooth task stopped unexpectedly"),
+            Self::BackgroundTaskStopped => write!(
+                formatter,
+                "A background Bluetooth task stopped unexpectedly"
+            ),
         }
     }
 }
@@ -41,7 +48,9 @@ impl fmt::Display for BluetoothError {
 impl fmt::Display for AudioServerFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ContextUnavailable => write!(formatter, "Cannot connect to the PulseAudio server"),
+            Self::ContextUnavailable => {
+                write!(formatter, "Cannot connect to the PulseAudio server")
+            }
             Self::CardNotFound => write!(formatter, "The audio server does not know this device"),
             Self::ProfileRejected => write!(formatter, "The audio server rejected the profile"),
         }

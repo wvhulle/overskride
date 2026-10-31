@@ -38,7 +38,12 @@ impl BluetoothSession {
     }
 
     pub async fn default_adapter_name(&self) -> Result<String, BluetoothError> {
-        Ok(self.bluez_session.default_adapter().await?.name().to_string())
+        Ok(self
+            .bluez_session
+            .default_adapter()
+            .await?
+            .name()
+            .to_string())
     }
 
     pub(crate) fn bluez_session(&self) -> &bluer::Session {
@@ -49,7 +54,12 @@ impl BluetoothSession {
         Ok(self.bluez_session.adapter(adapter_name)?)
     }
 
-    pub(crate) fn device(&self, device_location: &DeviceLocation) -> Result<bluer::Device, BluetoothError> {
-        Ok(self.adapter(&device_location.adapter_name)?.device(device_location.address)?)
+    pub(crate) fn device(
+        &self,
+        device_location: &DeviceLocation,
+    ) -> Result<bluer::Device, BluetoothError> {
+        Ok(self
+            .adapter(&device_location.adapter_name)?
+            .device(device_location.address)?)
     }
 }

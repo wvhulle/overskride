@@ -25,7 +25,10 @@ pub struct RadioBond {
 
 impl RadioBond {
     pub fn is_bonded(&self) -> bool {
-        matches!(self.membership, RadioMembership::Known(RadioDeviceState { bonded: true, .. }))
+        matches!(
+            self.membership,
+            RadioMembership::Known(RadioDeviceState { bonded: true, .. })
+        )
     }
 }
 
