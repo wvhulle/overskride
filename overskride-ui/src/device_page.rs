@@ -39,7 +39,7 @@ use crate::pairing_timeline::{PairingTimeline, PairingTimelineInput};
 use crate::widgets::alert_dialogs::{
     CANCEL_CHOICE, build_alert, choose_response, destructive_choice,
 };
-use crate::widgets::page_templates::{ClampedPage, PageHeader, PropertyRow};
+use crate::widgets::page_templates::{ClampedPage, PropertyRow};
 
 #[derive(Clone, Debug)]
 pub enum ObexAvailability {
@@ -81,6 +81,7 @@ pub struct DevicePage {
     radio_bonds: Vec<RadioBond>,
     active_pairing: ActivePairing,
     rename_operation: OperationState,
+    pending_alias: Option<String>,
     alias_changed: bool,
     audio_state: AudioState,
     audio_choices_changed: bool,
@@ -126,7 +127,7 @@ pub enum DevicePageCommand {
     Pairing(PairingProgress),
     ConnectionChanged(Result<(), ConnectionStepFailure>),
     PolicyApplied(Result<(), AuthorizationFailure>),
-    Renamed(Result<String, BluetoothError>),
+    Renamed(Result<(), BluetoothError>),
     AudioProfilesRead(Result<AudioProfiles, BluetoothError>),
     AudioProfileApplied(Result<(), BluetoothError>),
     Forgotten {
@@ -420,17 +421,37 @@ impl Component for DevicePage {
         ClampedPage {
             #[template_child]
             page_content {
-                #[template]
-                PageHeader {
-                    #[template_child]
-                    header_icon {
+                gtk::Image {
+                    set_pixel_size: 80,
+                    #[watch]
+                    set_icon_name: Some(device_icon_name(&model.snapshot)),
+                },
+
+                adw::PreferencesGroup {
+                    set_description: Some("Stored on this computer for each radio, together with the bond."),
+
+                    adw::EntryRow {
+                        set_title: "Device Name",
+                        set_show_apply_button: true,
+                        #[track(model.alias_changed)]
+                        set_show_apply_button: false,
+                        #[track(model.alias_changed)]
+                        set_text: &model.snapshot.alias,
+                        #[track(model.alias_changed)]
+                        set_show_apply_button: true,
                         #[watch]
-                        set_icon_name: Some(device_icon_name(&model.snapshot)),
-                    },
-                    #[template_child]
-                    header_title {
-                        #[watch]
-                        set_label: model.snapshot.display_name(),
+                        set_editable: model.rename_operation == OperationState::Idle,
+                        connect_apply[sender] => move |entry_row| {
+                            sender.input(DevicePageInput::RenameRequested(entry_row.text().to_string()));
+                        },
+
+                        add_suffix = &gtk::Spinner {
+                            set_tooltip_text: Some("Renaming…"),
+                            #[watch]
+                            set_spinning: model.rename_operation == OperationState::Busy,
+                            #[watch]
+                            set_visible: model.rename_operation == OperationState::Busy,
+                        },
                     },
                 },
 
@@ -483,31 +504,6 @@ impl Component for DevicePage {
                             set_label: "Choose File",
                             set_valign: gtk::Align::Center,
                             connect_clicked => DevicePageInput::ChooseFilesToSend,
-                        },
-                    },
-                },
-
-                adw::PreferencesGroup {
-                    set_title: "Name",
-                    set_description: Some("Stored on this computer for each radio, together with the bond."),
-
-                    adw::EntryRow {
-                        set_title: "Device Name",
-                        set_show_apply_button: true,
-                        #[track(model.alias_changed)]
-                        set_text: &model.snapshot.alias,
-                        #[watch]
-                        set_editable: model.rename_operation == OperationState::Idle,
-                        connect_apply[sender] => move |entry_row| {
-                            sender.input(DevicePageInput::RenameRequested(entry_row.text().to_string()));
-                        },
-
-                        add_suffix = &gtk::Spinner {
-                            set_tooltip_text: Some("Renaming…"),
-                            #[watch]
-                            set_spinning: model.rename_operation == OperationState::Busy,
-                            #[watch]
-                            set_visible: model.rename_operation == OperationState::Busy,
                         },
                     },
                 },
@@ -591,6 +587,7 @@ impl Component for DevicePage {
             radio_bonds: Vec::new(),
             active_pairing: ActivePairing::Idle,
             rename_operation: OperationState::Idle,
+            pending_alias: None,
             alias_changed: true,
             audio_state: AudioState::Unavailable,
             audio_choices_changed: true,
@@ -624,7 +621,11 @@ impl Component for DevicePage {
         match input {
             DevicePageInput::DeviceChanged(snapshot) => {
                 let connection_changed = snapshot.connected != self.snapshot.connected;
-                self.alias_changed = snapshot.alias != self.snapshot.alias;
+                if self.pending_alias.as_ref() == Some(&snapshot.alias) {
+                    self.pending_alias = None;
+                }
+                self.alias_changed =
+                    self.pending_alias.is_none() && snapshot.alias != self.snapshot.alias;
                 self.snapshot = snapshot;
                 self.capability_overview
                     .emit(CapabilityOverviewInput::SourcesChanged(capability_sources(
@@ -641,8 +642,14 @@ impl Component for DevicePage {
                 self.link_measurements.connection_history = connection_history;
                 self.present_timeline();
             }
-            DevicePageInput::RenameRequested(requested_alias) => {
+            DevicePageInput::RenameRequested(entered_alias) => {
+                let requested_alias = entered_alias.trim().to_owned();
+                if requested_alias.is_empty() || requested_alias == self.snapshot.alias {
+                    self.alias_changed = true;
+                    return;
+                }
                 self.rename_operation = OperationState::Busy;
+                self.pending_alias = Some(requested_alias.clone());
                 let session = self.session.clone();
                 let location = self.snapshot.location.clone();
                 sender.oneshot_command(async move {
@@ -787,15 +794,10 @@ impl Component for DevicePage {
             }
             DevicePageCommand::Renamed(outcome) => {
                 self.rename_operation = OperationState::Idle;
-                match outcome {
-                    Ok(current_alias) => {
-                        self.alias_changed = current_alias != self.snapshot.alias;
-                        self.snapshot.alias = current_alias;
-                    }
-                    Err(rename_error) => {
-                        self.alias_changed = true;
-                        Self::report_failure(&sender, rename_error);
-                    }
+                if let Err(rename_error) = outcome {
+                    self.pending_alias = None;
+                    self.alias_changed = true;
+                    Self::report_failure(&sender, rename_error);
                 }
             }
             DevicePageCommand::AudioProfilesRead(Ok(audio_profiles))

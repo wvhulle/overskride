@@ -40,10 +40,9 @@ pub async fn rename_device(
     session: &BluetoothSession,
     location: &DeviceLocation,
     alias: &str,
-) -> Result<String, BluetoothError> {
+) -> Result<(), BluetoothError> {
     let device = session.device(location)?;
-    device.set_alias(alias.trim().to_string()).await?;
-    Ok(device.alias().await?)
+    Ok(device.set_alias(alias.trim().to_string()).await?)
 }
 
 pub async fn forget_device(

@@ -37,6 +37,7 @@ pub struct AdapterPage {
     session: BluetoothSession,
     adapter: AdapterSnapshot,
     alias_changed: bool,
+    alias_saving: bool,
     visibility_timeout_choices: Vec<Duration>,
     visibility_choices_changed: bool,
     visible_since: Option<Instant>,
@@ -60,6 +61,7 @@ pub enum AdapterPageOutput {
 pub enum AdapterPageCommand {
     AdapterChanged(AdapterSnapshot),
     ActionFinished(Result<AdapterSnapshot, BluetoothError>),
+    AliasSaved(Result<AdapterSnapshot, BluetoothError>),
     VisibilityTick,
 }
 
@@ -253,9 +255,23 @@ impl Component for AdapterPage {
                         set_title: "Name Shown to Other Devices",
                         set_show_apply_button: true,
                         #[track(model.alias_changed)]
+                        set_show_apply_button: false,
+                        #[track(model.alias_changed)]
                         set_text: &model.adapter.alias,
+                        #[track(model.alias_changed)]
+                        set_show_apply_button: true,
+                        #[watch]
+                        set_editable: !model.alias_saving,
                         connect_apply[sender] => move |entry_row| {
                             sender.input(AdapterPageInput::AliasApplied(entry_row.text().to_string()));
+                        },
+
+                        add_suffix = &gtk::Spinner {
+                            set_tooltip_text: Some("Renaming…"),
+                            #[watch]
+                            set_spinning: model.alias_saving,
+                            #[watch]
+                            set_visible: model.alias_saving,
                         },
                     },
 
@@ -351,6 +367,7 @@ impl Component for AdapterPage {
             visible_since: None,
             adapter: page_init.adapter,
             alias_changed: true,
+            alias_saving: false,
         };
         let widgets = view_output!();
 
@@ -416,9 +433,15 @@ impl Component for AdapterPage {
                     )
                 });
             }
-            AdapterPageInput::AliasApplied(alias) => {
+            AdapterPageInput::AliasApplied(entered_alias) => {
+                let alias = entered_alias.trim().to_owned();
+                if alias.is_empty() || alias == self.adapter.alias {
+                    self.alias_changed = true;
+                    return;
+                }
+                self.alias_saving = true;
                 sender.oneshot_command(async move {
-                    AdapterPageCommand::ActionFinished(
+                    AdapterPageCommand::AliasSaved(
                         set_alias(&session, &adapter_name, alias).await,
                     )
                 });
@@ -441,6 +464,15 @@ impl Component for AdapterPage {
                 self.show_adapter(adapter_snapshot, &sender);
             }
             AdapterPageCommand::ActionFinished(Err(adapter_error)) => {
+                let _app_gone = sender.output(AdapterPageOutput::Failed(adapter_error));
+            }
+            AdapterPageCommand::AliasSaved(Ok(adapter_snapshot)) => {
+                self.alias_saving = false;
+                self.show_adapter(adapter_snapshot, &sender);
+            }
+            AdapterPageCommand::AliasSaved(Err(adapter_error)) => {
+                self.alias_saving = false;
+                self.alias_changed = true;
                 let _app_gone = sender.output(AdapterPageOutput::Failed(adapter_error));
             }
             AdapterPageCommand::VisibilityTick => {}
