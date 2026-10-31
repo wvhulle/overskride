@@ -2,6 +2,7 @@ pub mod adapter_state;
 pub mod audio_profiles;
 pub mod bluetooth_error;
 pub mod device_actions;
+pub mod device_capabilities;
 pub mod device_changes;
 pub mod device_guess;
 pub mod device_ordering;

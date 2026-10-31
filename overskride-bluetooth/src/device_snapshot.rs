@@ -4,14 +4,13 @@ use std::str::FromStr;
 use bluer::DeviceProperty;
 
 use crate::bluetooth_error::BluetoothError;
+use crate::device_capabilities::DeviceCapability;
 use crate::device_guess::{DeviceAppearance, DeviceGuess, guess_device_kind};
 use crate::kernel_input_devices::{KernelInputBinding, find_kernel_input_devices};
 use crate::service_names::describe_service;
 use crate::session::DeviceLocation;
 
 pub const UNKNOWN_DEVICE_NAME: &str = "Unknown Device";
-pub const OBJECT_PUSH_SERVICE: bluer::Uuid =
-    bluer::Uuid::from_u128(0x0000_1105_0000_1000_8000_0080_5f9b_34fb);
 pub const HUMAN_INTERFACE_DEVICE_SERVICE: bluer::Uuid =
     bluer::Uuid::from_u128(0x0000_1124_0000_1000_8000_0080_5f9b_34fb);
 const FALLBACK_TRANSMIT_POWER: i16 = -59;
@@ -246,15 +245,27 @@ impl DeviceSnapshot {
     }
 
     pub fn offers_object_push(&self) -> bool {
-        self.services.contains(&OBJECT_PUSH_SERVICE)
+        self.offers_capability(DeviceCapability::ReceivesFiles)
     }
 
-    pub fn service_names(&self) -> Vec<String> {
+    pub fn offers_capability(&self, capability: DeviceCapability) -> bool {
+        capability.is_offered_by(&self.advertised_services())
+    }
+
+    pub fn advertised_services(&self) -> BTreeSet<bluer::Uuid> {
         self.services
             .iter()
             .chain(self.service_data.keys())
             .copied()
-            .collect::<BTreeSet<_>>()
+            .collect()
+    }
+
+    pub fn made_by_apple(&self) -> bool {
+        matches!(&self.manufacturer, Manufacturer::Identified(manufacturer_name) if manufacturer_name.starts_with("Apple"))
+    }
+
+    pub fn service_names(&self) -> Vec<String> {
+        self.advertised_services()
             .into_iter()
             .filter_map(describe_service)
             .collect()

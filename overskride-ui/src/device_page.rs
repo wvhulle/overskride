@@ -23,6 +23,7 @@ use relm4::gtk;
 use relm4::gtk::{gio, glib};
 use relm4::prelude::*;
 
+use crate::capability_overview::{CapabilityOverview, CapabilityOverviewInput, CapabilitySources};
 use crate::device_status::{
     describe_address_type, describe_device_type, device_icon_name, type_guess_evidence,
 };
@@ -76,6 +77,7 @@ pub struct DevicePage {
     audio_state: AudioState,
     audio_choices_changed: bool,
     timeline: Controller<PairingTimeline>,
+    capability_overview: Controller<CapabilityOverview>,
 }
 
 #[derive(Debug)]
@@ -127,6 +129,13 @@ fn describe_distance(distance_estimate: DistanceEstimate) -> String {
     match distance_estimate {
         DistanceEstimate::Unknown => "Unknown".to_string(),
         DistanceEstimate::Meters(distance_meters) => format!("≈ {distance_meters:.2} meters"),
+    }
+}
+
+fn capability_sources(snapshot: &DeviceSnapshot) -> CapabilitySources {
+    CapabilitySources {
+        advertised_services: snapshot.advertised_services(),
+        made_by_apple: snapshot.made_by_apple(),
     }
 }
 
@@ -367,15 +376,12 @@ impl Component for DevicePage {
                 model.timeline.widget().clone(),
 
                 adw::PreferencesGroup {
-                    set_title: "Audio and Files",
+                    set_title: "Audio",
                     #[watch]
-                    set_visible: model.audio_state != AudioState::Unavailable
-                        || model.snapshot.offers_object_push(),
+                    set_visible: model.audio_state != AudioState::Unavailable,
 
                     adw::ComboRow {
                         set_title: "Audio Profile",
-                        #[watch]
-                        set_visible: model.audio_state != AudioState::Unavailable,
                         #[track(model.audio_choices_changed)]
                         #[block_signal(audio_choice_handler)]
                         set_model: Some(&audio_choice_list(&model.audio_state)),
@@ -386,11 +392,15 @@ impl Component for DevicePage {
                             sender.input(DevicePageInput::AudioChoiceSelected(combo_row.selected()));
                         } @audio_choice_handler,
                     },
+                },
+
+                adw::PreferencesGroup {
+                    set_title: "Files",
+                    #[watch]
+                    set_visible: model.snapshot.offers_object_push(),
 
                     adw::SwitchRow {
                         set_title: "Accept Files Without Asking",
-                        #[watch]
-                        set_visible: model.snapshot.offers_object_push(),
                         #[watch]
                         set_sensitive: model.snapshot.bonded,
                         #[watch]
@@ -405,8 +415,6 @@ impl Component for DevicePage {
 
                     adw::ActionRow {
                         set_title: "Send File To Device",
-                        #[watch]
-                        set_visible: model.snapshot.offers_object_push(),
                         #[watch]
                         set_sensitive: model.snapshot.connected && matches!(model.obex, ObexAvailability::Available(_)),
 
@@ -442,6 +450,8 @@ impl Component for DevicePage {
                         },
                     },
                 },
+
+                model.capability_overview.widget().clone(),
 
                 adw::PreferencesGroup {
                     set_title: "Details",
@@ -487,7 +497,7 @@ impl Component for DevicePage {
                     },
                     #[template]
                     PropertyRow {
-                        set_title: "Services",
+                        set_title: "Advertised Profiles",
                         #[watch]
                         set_subtitle: &glib::markup_escape_text(&model.snapshot.service_names().join("\n")),
                     },
@@ -511,6 +521,10 @@ impl Component for DevicePage {
             .launch(initial_presentation)
             .forward(sender.input_sender(), DevicePageInput::Timeline);
 
+        let capability_overview = CapabilityOverview::builder()
+            .launch(capability_sources(&page_init.snapshot))
+            .detach();
+
         let mut model = Self {
             session: page_init.session,
             obex: page_init.obex,
@@ -525,6 +539,7 @@ impl Component for DevicePage {
             audio_state: AudioState::Unavailable,
             audio_choices_changed: true,
             timeline,
+            capability_overview,
         };
         let widgets = view_output!();
 
@@ -541,6 +556,10 @@ impl Component for DevicePage {
                 let connection_changed = snapshot.connected != self.snapshot.connected;
                 self.alias_changed = snapshot.alias != self.snapshot.alias;
                 self.snapshot = snapshot;
+                self.capability_overview
+                    .emit(CapabilityOverviewInput::SourcesChanged(capability_sources(
+                        &self.snapshot,
+                    )));
                 if connection_changed {
                     self.read_audio_profiles(&sender);
                     self.read_radio_bonds(&sender);

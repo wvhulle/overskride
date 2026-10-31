@@ -4,6 +4,7 @@ mod adapter_row;
 mod app_preferences;
 mod app_settings_page;
 mod app_window;
+mod capability_overview;
 mod device_list;
 mod device_page;
 mod device_status;
