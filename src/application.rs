@@ -22,7 +22,6 @@ use gtk::prelude::*;
 use adw::subclass::prelude::*;
 use gtk::{gio, glib};
 
-use crate::config::VERSION;
 use crate::OverskrideWindow;
 
 mod imp {
@@ -103,7 +102,7 @@ impl OverskrideApplication {
             .application_name("Overskride")
             .application_icon("io.github.kaii_lb.Overskride")
             .developer_name("kaii")
-            .version(VERSION)
+            .version(env!("CARGO_PKG_VERSION"))
             .developers(vec!["kaii", "Email: imkaiilb@gmail.com<imkaiilb@gmail.com>", "Github: kaii-lb https://github.com/kaii-lb"])
             .copyright("© 2023 kaii")
             .license_type(gtk::License::Gpl30)
