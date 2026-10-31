@@ -18,8 +18,8 @@ use relm4::{
 };
 
 use crate::{
-    device_status::{pairing_status_badge, signal_icon_name, symbolic_device_icon_name},
     icon_names,
+    shared_device_appearance::{pairing_status_badge, signal_icon_name, symbolic_device_icon_name},
 };
 
 const NAMED_ONLY_FILTER_INDEX: usize = 0;

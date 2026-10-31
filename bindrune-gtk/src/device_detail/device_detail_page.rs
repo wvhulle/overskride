@@ -38,19 +38,25 @@ use relm4::{
 };
 
 use crate::{
-    capability_overview::{CapabilityOverview, CapabilityOverviewInput, CapabilitySources},
-    device_status::{
+    device_detail::{
+        device_capability_overview::{
+            CapabilityOverview, CapabilityOverviewInput, CapabilitySources,
+        },
+        pairing_step_timeline::{
+            pairing_step_presentation::{
+                ActivePairing, LinkMeasurements, ReportTimingState, StepButtonAction,
+                TimelineAction, TimelineInputs,
+            },
+            pairing_timeline_widgets::{PairingTimeline, PairingTimelineInput},
+        },
+    },
+    incoming_request_prompts::prompt_alert_dialogs::{
+        CANCEL_CHOICE, build_alert, choose_response, destructive_choice,
+    },
+    shared_device_appearance::{
         describe_address_type, describe_device_type, device_icon_name, type_guess_evidence,
     },
-    pairing_presentation::{
-        ActivePairing, LinkMeasurements, ReportTimingState, StepButtonAction, TimelineAction,
-        TimelineInputs,
-    },
-    pairing_timeline::{PairingTimeline, PairingTimelineInput},
-    widgets::{
-        alert_dialogs::{CANCEL_CHOICE, build_alert, choose_response, destructive_choice},
-        page_templates::{ClampedPage, PropertyRow},
-    },
+    shared_page_widget_templates::{ClampedPage, PropertyRow},
 };
 
 #[derive(Clone, Debug)]

@@ -18,13 +18,17 @@ use relm4::{
 };
 
 use crate::{
-    app_actions::{AppActionGroup, QuitAction, ShowWindowAction},
-    app_preferences::{AppPreferences, PreferenceChange},
-    device_page::ObexAvailability,
+    background_application_lifecycle::{
+        application_menu_actions::{AppActionGroup, QuitAction, ShowWindowAction},
+        gsettings_stored_preferences::{AppPreferences, PreferenceChange},
+        login_autostart_entry::{LoginAutostartError, apply_login_autostart, managed_by_systemd},
+        system_tray_menu::{OverskrideTray, TrayContent, TrayRequest, TrayScope},
+    },
+    device_detail::device_detail_page::ObexAvailability,
     icon_names,
-    login_autostart::{LoginAutostartError, apply_login_autostart, managed_by_systemd},
-    main_view::{MainView, MainViewInit, MainViewInput, MainViewOutput},
-    tray_icon::{OverskrideTray, TrayContent, TrayRequest, TrayScope},
+    sidebar_content_split::sidebar_content_split_view::{
+        MainView, MainViewInit, MainViewInput, MainViewOutput,
+    },
 };
 
 const NARROW_WINDOW_CONDITION: &str = "max-width: 700sp";

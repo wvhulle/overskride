@@ -11,12 +11,14 @@ use bindrune_bluez::{
 use relm4::{adw, adw::prelude::*, gtk, prelude::*};
 
 use crate::{
-    attention_notifications::{
-        notify_about_prompt, window_needs_attention, withdraw_prompt_notification,
-    },
-    transfers_popover::{SenderAssessment, TransferDecision},
-    widgets::alert_dialogs::{
-        AlertChoice, CANCEL_CHOICE, answer_entry, build_alert, plain_choice, suggested_choice,
+    header_transfer_popover::file_transfer_popover::{SenderAssessment, TransferDecision},
+    incoming_request_prompts::{
+        prompt_alert_dialogs::{
+            AlertChoice, CANCEL_CHOICE, answer_entry, build_alert, plain_choice, suggested_choice,
+        },
+        prompt_dialog_and_notification_delivery::{
+            notify_about_prompt, window_needs_attention, withdraw_prompt_notification,
+        },
     },
 };
 

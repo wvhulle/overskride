@@ -18,7 +18,10 @@ use relm4::{
     prelude::*,
 };
 
-use crate::{app_preferences::AppPreferences, device_page::ObexAvailability};
+use crate::{
+    background_application_lifecycle::gsettings_stored_preferences::AppPreferences,
+    device_detail::device_detail_page::ObexAvailability,
+};
 
 const FINISHED_TRANSFER_LINGER: Duration = Duration::from_secs(60);
 

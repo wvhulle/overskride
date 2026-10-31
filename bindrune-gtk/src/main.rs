@@ -1,34 +1,25 @@
-mod about;
-mod adapter_page;
-mod adapter_row;
-mod app_actions;
-mod app_preferences;
-mod app_settings_page;
-mod app_window;
-mod attention_notifications;
-mod capability_overview;
-mod device_list;
-mod device_page;
-mod device_status;
+mod adapter_detail;
+mod application_preferences_page;
+mod background_application_lifecycle;
+mod device_detail;
+mod header_transfer_popover;
 #[allow(dead_code)]
 mod icon_names {
     include!(concat!(env!("OUT_DIR"), "/icon_names.rs"));
 }
-mod login_autostart;
-mod main_view;
-mod pairing_presentation;
-mod pairing_timeline;
-mod prompt_center;
-mod transfers_popover;
-mod tray_icon;
-mod widgets;
+mod incoming_request_prompts;
+mod shared_device_appearance;
+mod shared_page_widget_templates;
+mod shared_protocol_info_button;
+mod sidebar_content_split;
+mod sidebar_device_list;
 
 use relm4::{adw, gtk::prelude::*};
 
-use crate::{
-    app_preferences::{APPLICATION_ID, AppPreferences},
-    app_window::{AppWindow, AppWindowInit},
-    login_autostart::BACKGROUND_FLAG,
+use crate::background_application_lifecycle::{
+    gsettings_stored_preferences::{APPLICATION_ID, AppPreferences},
+    login_autostart_entry::BACKGROUND_FLAG,
+    main_window_shell::{AppWindow, AppWindowInit},
 };
 
 fn main() {

@@ -35,7 +35,7 @@ use uom::{
     },
 };
 
-use crate::device_status::{SignalQuality, input_device_missing};
+use crate::shared_device_appearance::{SignalQuality, input_device_missing};
 
 const DROP_COUNTING_WINDOW: Duration = Duration::from_secs(3600);
 const UNSTABLE_SIGNAL_LOSS_COUNT: usize = 2;

@@ -4,12 +4,12 @@ use relm4::{
 };
 
 use crate::{
-    icon_names,
-    pairing_presentation::{
+    device_detail::pairing_step_timeline::pairing_step_presentation::{
         PolicySelector, PropertyHint, PropertyRow, RadioControl, RadioRowPresentation,
         StepButtonSlot, StepNodeState, StepPresentation, TimelineAction, TimelinePresentation,
     },
-    widgets::protocol_info::protocol_info_button,
+    icon_names,
+    shared_protocol_info_button::protocol_info_button,
 };
 
 struct PolicyChoice {

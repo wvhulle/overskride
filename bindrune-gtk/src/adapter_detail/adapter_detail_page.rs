@@ -18,9 +18,9 @@ use uom::{
     },
 };
 
-use crate::widgets::{
-    page_templates::{ClampedPage, PageHeader},
-    protocol_info::protocol_info_button,
+use crate::{
+    shared_page_widget_templates::{ClampedPage, PageHeader},
+    shared_protocol_info_button::protocol_info_button,
 };
 
 const COUNTDOWN_TICK: Duration = Duration::from_secs(1);

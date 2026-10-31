@@ -28,21 +28,29 @@ use futures::StreamExt;
 use relm4::{adw, adw::prelude::*, factory::FactoryVecDeque, gtk, prelude::*};
 
 use crate::{
-    adapter_page::{AdapterPage, AdapterPageInit, AdapterPageInput, AdapterPageOutput},
-    adapter_row::{AdapterRow, AdapterRowInit},
-    app_actions::{AnswerDialogAction, AppActionGroup, QuitAction},
-    app_preferences::{AppPreferences, PreferenceChange},
-    app_settings_page::AppSettingsPage,
-    device_list::{DeviceList, DeviceListInput, DeviceListOutput, DeviceListSource},
-    device_page::{
+    adapter_detail::adapter_detail_page::{
+        AdapterPage, AdapterPageInit, AdapterPageInput, AdapterPageOutput,
+    },
+    application_preferences_page::AppSettingsPage,
+    background_application_lifecycle::{
+        application_menu_actions::{AnswerDialogAction, AppActionGroup, QuitAction},
+        gsettings_stored_preferences::{AppPreferences, PreferenceChange},
+        system_tray_menu::{TrayContent, TrayDevice, TrayRequest},
+    },
+    device_detail::device_detail_page::{
         DevicePage, DevicePageInit, DevicePageInput, DevicePageOutput, ObexAvailability,
     },
-    prompt_center::{
+    header_transfer_popover::file_transfer_popover::{
+        TransfersInit, TransfersInput, TransfersOutput, TransfersPopover,
+    },
+    incoming_request_prompts::incoming_request_prompt_queue::{
         PromptCenter, PromptCenterInput, PromptCenterOutput, PromptRequest, RequesterDescription,
         answer_from_notification_target,
     },
-    transfers_popover::{TransfersInit, TransfersInput, TransfersOutput, TransfersPopover},
-    tray_icon::{TrayContent, TrayDevice, TrayRequest},
+    sidebar_device_list::{
+        sidebar_adapter_row::{AdapterRow, AdapterRowInit},
+        sidebar_device_rows::{DeviceList, DeviceListInput, DeviceListOutput, DeviceListSource},
+    },
 };
 
 const SCAN_DURATION_SECONDS: u32 = 60;
@@ -804,7 +812,9 @@ impl Component for MainView {
                 refresh_sender.emit(MainViewInput::RefreshDevices);
             });
         let about_action: relm4::actions::RelmAction<AboutAction> =
-            relm4::actions::RelmAction::new_stateless(|_about_action| crate::about::show_about());
+            relm4::actions::RelmAction::new_stateless(|_about_action| {
+                crate::background_application_lifecycle::about_application_dialog::show_about()
+            });
         let mut window_actions = relm4::actions::RelmActionGroup::<MainViewActionGroup>::new();
         window_actions.add_action(refresh_action);
         window_actions.add_action(about_action);

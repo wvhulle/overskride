@@ -5,7 +5,7 @@ use std::{
 
 use ashpd::desktop::background::Background;
 
-use crate::app_preferences::APPLICATION_ID;
+use crate::background_application_lifecycle::gsettings_stored_preferences::APPLICATION_ID;
 
 pub const BACKGROUND_FLAG: &str = "--background";
 const SYSTEMD_SERVICE_MARKER: &str = "OVERSKRIDE_SYSTEMD_SERVICE";

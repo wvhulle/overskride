@@ -3,10 +3,12 @@ use std::path::PathBuf;
 use relm4::{adw, adw::prelude::*, gtk, gtk::gio, prelude::*};
 
 use crate::{
-    app_preferences::{AppPreferences, RUN_IN_BACKGROUND_KEY, START_AT_LOGIN_KEY},
+    background_application_lifecycle::{
+        gsettings_stored_preferences::{AppPreferences, RUN_IN_BACKGROUND_KEY, START_AT_LOGIN_KEY},
+        login_autostart_entry::managed_by_systemd,
+    },
     icon_names,
-    login_autostart::managed_by_systemd,
-    widgets::page_templates::{ClampedPage, PageHeader},
+    shared_page_widget_templates::{ClampedPage, PageHeader},
 };
 
 pub struct AppSettingsPage {

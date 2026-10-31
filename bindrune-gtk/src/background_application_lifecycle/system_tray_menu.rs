@@ -1,6 +1,8 @@
 use ksni::menu::{CheckmarkItem, StandardItem};
 
-use crate::{app_preferences::APPLICATION_ID, app_window::AppWindowInput};
+use crate::background_application_lifecycle::{
+    gsettings_stored_preferences::APPLICATION_ID, main_window_shell::AppWindowInput,
+};
 
 const MOST_TRAY_DEVICES: usize = 8;
 

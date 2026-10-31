@@ -1,6 +1,6 @@
 use relm4::gtk::{gio, prelude::*};
 
-use crate::widgets::alert_dialogs::AlertChoice;
+use crate::incoming_request_prompts::prompt_alert_dialogs::AlertChoice;
 
 const ANSWER_DIALOG_ACTION: &str = "app.answer-dialog";
 const SHOW_WINDOW_ACTION: &str = "app.show-window";

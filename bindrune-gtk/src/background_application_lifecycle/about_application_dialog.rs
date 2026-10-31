@@ -1,6 +1,6 @@
 use relm4::{adw, adw::prelude::*};
 
-use crate::app_preferences::APPLICATION_ID;
+use crate::background_application_lifecycle::gsettings_stored_preferences::APPLICATION_ID;
 
 pub fn show_about() {
     let about_dialog = adw::AboutDialog::builder()
