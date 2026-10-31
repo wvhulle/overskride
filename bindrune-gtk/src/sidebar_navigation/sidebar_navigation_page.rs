@@ -111,7 +111,7 @@ impl Component for SidebarNavigationPage {
 
     view! {
         adw::NavigationPage {
-            set_title: "Overskride",
+            set_title: "Bindrune",
 
             #[wrap(Some)]
             set_child = &adw::ToolbarView {

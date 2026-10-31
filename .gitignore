@@ -5,4 +5,4 @@ result
 .idea/
 .flatpak-builder/
 flatpak-build/
-overskride.flatpak
+bindrune.flatpak

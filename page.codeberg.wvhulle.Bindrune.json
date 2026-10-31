@@ -1,12 +1,12 @@
 {
-    "app-id" : "io.github.kaii_lb.Overskride",
+    "app-id" : "page.codeberg.wvhulle.Bindrune",
     "runtime" : "org.gnome.Platform",
     "runtime-version" : "49",
     "sdk" : "org.gnome.Sdk",
     "sdk-extensions" : [
         "org.freedesktop.Sdk.Extension.rust-stable"
     ],
-    "command" : "overskride",
+    "command" : "bindrune",
     "finish-args" : [
         "--share=ipc",
         "--socket=fallback-x11",
@@ -40,7 +40,7 @@
     ],
     "modules" : [
         {
-            "name" : "overskride",
+            "name" : "bindrune",
             "buildsystem" : "simple",
             "build-commands" : [
                 "cargo build --release --locked --package bindrune-gtk",

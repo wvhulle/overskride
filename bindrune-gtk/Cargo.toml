@@ -5,7 +5,7 @@ edition = "2024"
 authors = ["kaii_lb <imkaiilb@gmail.com>", "Willem Vanhulle <willemvanhulle@gmail.com>"]
 
 [[bin]]
-name = "overskride"
+name = "bindrune"
 path = "src/main.rs"
 
 [dependencies]

@@ -21,7 +21,7 @@ use crate::{
     },
 };
 
-const AGENT_OBJECT_PATH: &str = "/overskride/agent";
+const AGENT_OBJECT_PATH: &str = "/bindrune/agent";
 const AGENT_INTERFACE: &str = "org.bluez.obex.Agent1";
 const AGENT_MANAGER_INTERFACE: &str = "org.bluez.obex.AgentManager1";
 const SESSION_INTERFACE: &str = "org.bluez.obex.Session1";

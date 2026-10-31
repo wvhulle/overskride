@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use relm4::gtk::{gio, glib, prelude::*};
 
-pub const APPLICATION_ID: &str = "io.github.kaii_lb.Overskride";
+pub const APPLICATION_ID: &str = "page.codeberg.wvhulle.Bindrune";
 const RECEIVED_FILES_SUBFOLDER: &str = "Bluetooth";
 const AUTO_ACCEPT_SENDERS_KEY: &str = "auto-accept-senders";
 pub const RUN_IN_BACKGROUND_KEY: &str = "run-in-background";
@@ -33,7 +33,7 @@ fn installed_settings() -> Option<gio::Settings> {
 fn bundled_settings() -> gio::Settings {
     let installed_source = gio::SettingsSchemaSource::default();
     let bundled_source = gio::SettingsSchemaSource::from_directory(
-        env!("OVERSKRIDE_COMPILED_SCHEMAS"),
+        env!("BINDRUNE_COMPILED_SCHEMAS"),
         installed_source.as_ref(),
         false,
     )

@@ -2,8 +2,8 @@ PREFIX ?= /usr/local
 DESTDIR ?=
 CARGO ?= cargo
 
-APPLICATION_ID := io.github.kaii_lb.Overskride
-RELEASE_BINARY := target/release/overskride
+APPLICATION_ID := page.codeberg.wvhulle.Bindrune
+RELEASE_BINARY := target/release/bindrune
 INSTALL_ROOT := $(DESTDIR)$(PREFIX)
 SHARE_DIRECTORY := $(INSTALL_ROOT)/share
 SCHEMA_DIRECTORY := $(SHARE_DIRECTORY)/glib-2.0/schemas
@@ -20,7 +20,7 @@ build:
 install: install-binary install-data
 
 install-binary:
-	install -Dm755 $(RELEASE_BINARY) $(INSTALL_ROOT)/bin/overskride
+	install -Dm755 $(RELEASE_BINARY) $(INSTALL_ROOT)/bin/bindrune
 
 install-data: install-desktop-entry install-metainfo install-schema install-icons install-systemd-unit
 ifeq ($(DESTDIR),)
@@ -43,17 +43,17 @@ install-icons:
 
 install-systemd-unit:
 	install -d $(SYSTEMD_USER_DIRECTORY)
-	sed 's|@bindir@|$(BINARY_DIRECTORY)|' data/overskride.service.in > $(SYSTEMD_USER_DIRECTORY)/overskride.service
-	chmod 644 $(SYSTEMD_USER_DIRECTORY)/overskride.service
+	sed 's|@bindir@|$(BINARY_DIRECTORY)|' data/bindrune.service.in > $(SYSTEMD_USER_DIRECTORY)/bindrune.service
+	chmod 644 $(SYSTEMD_USER_DIRECTORY)/bindrune.service
 
 uninstall:
-	rm -f $(INSTALL_ROOT)/bin/overskride
+	rm -f $(INSTALL_ROOT)/bin/bindrune
 	rm -f $(SHARE_DIRECTORY)/applications/$(APPLICATION_ID).desktop
 	rm -f $(SHARE_DIRECTORY)/metainfo/$(APPLICATION_ID).metainfo.xml
 	rm -f $(SCHEMA_DIRECTORY)/$(APPLICATION_ID).gschema.xml
 	rm -f $(ICON_DIRECTORY)/scalable/apps/$(APPLICATION_ID).svg
 	rm -f $(ICON_DIRECTORY)/symbolic/apps/$(APPLICATION_ID)-symbolic.svg
-	rm -f $(SYSTEMD_USER_DIRECTORY)/overskride.service
+	rm -f $(SYSTEMD_USER_DIRECTORY)/bindrune.service
 
 check:
 	$(CARGO) test --workspace --locked

@@ -11,7 +11,7 @@ use pulseaudio::{
 use crate::bluez_operation_error::{AudioServerFailure, BluetoothError};
 
 const OFF_PROFILE_NAME: &str = "off";
-const APPLICATION_NAME: &str = "Overskride";
+const APPLICATION_NAME: &str = "Bindrune";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AudioProfile {

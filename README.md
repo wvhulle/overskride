@@ -1,11 +1,13 @@
-# Overskride
+# Bindrune
 A Bluetooth and Obex client that is straight to the point, DE/WM agnostic, and beautiful :D
 
-![Screenshot](/assets/images/overskride.png)
+Bindrune is a hard fork of [Overskride](https://github.com/kaii-lb/overskride) by kaii. The name refers to the Bluetooth logo, which is a bindrune of the runes ᚼ and ᛒ.
+
+![Screenshot](/assets/images/bindrune.png)
 
 # Installing
 
-Overskride talks to BlueZ, so the Bluetooth service has to run:
+Bindrune talks to BlueZ, so the Bluetooth service has to run:
 
 ```bash
 sudo systemctl enable --now bluetooth
@@ -13,21 +15,21 @@ sudo systemctl enable --now bluetooth
 
 File transfers also need `obexd` (often packaged as `bluez-obex`).
 
-- **Flatpak:** download `overskride-nightly.flatpak` from the latest run on the [GitHub Actions page](https://github.com/kaii-lb/overskride/actions/) and install it with `flatpak install --user overskride-nightly.flatpak`.
-- **Nix:** `nix run github:kaii-lb/overskride`, or add the flake's `overlays.default` to your system.
+- **Flatpak:** build it yourself, see [Flatpak](#flatpak) below.
+- **Nix:** `nix run git+https://codeberg.org/wvhulle/bindrune`, or add the flake's `overlays.default` to your system.
 - **From source:** see below.
 
 # Running in the background
 
-Closing the window keeps Overskride running, so phones can still pair and send files. A tray icon (on desktops with StatusNotifierItem support, e.g. KDE, or GNOME with the AppIndicator extension) reopens the window. Pairing requests and incoming files show a notification while the window is hidden or unfocused. Quit from the main menu, the tray icon or with Ctrl+Q. Both behaviours can be switched off under Settings → Background.
+Closing the window keeps Bindrune running, so phones can still pair and send files. A tray icon (on desktops with StatusNotifierItem support, e.g. KDE, or GNOME with the AppIndicator extension) reopens the window. Pairing requests and incoming files show a notification while the window is hidden or unfocused. Quit from the main menu, the tray icon or with Ctrl+Q. Both behaviours can be switched off under Settings → Background.
 
-To start hidden at login, either turn on *Start at Login* in the settings, or run Overskride as a systemd user service:
+To start hidden at login, either turn on *Start at Login* in the settings, or run Bindrune as a systemd user service:
 
-- **home-manager:** import `overskride.homeManagerModules.default` and set `services.overskride.enable = true;`
-- **NixOS:** import `overskride.nixosModules.default` and set `services.overskride.enable = true;` (enabled for every graphical session)
-- **Other distributions:** `make install` installs `lib/systemd/user/overskride.service`; enable it with `systemctl --user enable --now overskride`
+- **home-manager:** import `bindrune.homeManagerModules.default` and set `services.bindrune.enable = true;`
+- **NixOS:** import `bindrune.nixosModules.default` and set `services.bindrune.enable = true;` (enabled for every graphical session)
+- **Other distributions:** `make install` installs `lib/systemd/user/bindrune.service`; enable it with `systemctl --user enable --now bindrune`
 
-The service runs `overskride --background`. Launching Overskride from the app menu opens the window of that running instance.
+The service runs `bindrune --background`. Launching Bindrune from the app menu opens the window of that running instance.
 
 # Building
 
@@ -64,7 +66,7 @@ sudo make uninstall
 ## Flatpak
 
 ```bash
-flatpak-builder --user --install --force-clean flatpak-build io.github.kaii_lb.Overskride.json
+flatpak-builder --user --install --force-clean flatpak-build page.codeberg.wvhulle.Bindrune.json
 ```
 
 # Features

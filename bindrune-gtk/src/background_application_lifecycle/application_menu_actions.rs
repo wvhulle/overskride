@@ -18,7 +18,7 @@ impl ActionName for AnswerDialogAction {
 
 pub fn show_about() {
     let about_dialog = adw::AboutDialog::builder()
-        .application_name("Overskride")
+        .application_name("Bindrune")
         .application_icon(APPLICATION_ID)
         .developer_name("kaii and Willem Vanhulle")
         .version(env!("CARGO_PKG_VERSION"))

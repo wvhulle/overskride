@@ -124,7 +124,7 @@ impl ksni::Tray for SystemTrayMenu {
     }
 
     fn title(&self) -> String {
-        "Overskride".to_string()
+        "Bindrune".to_string()
     }
 
     fn category(&self) -> ksni::Category {
@@ -145,7 +145,7 @@ impl ksni::Tray for SystemTrayMenu {
             (true, connected_count) => format!("{connected_count} devices connected"),
         };
         ksni::ToolTip {
-            title: "Overskride".to_string(),
+            title: "Bindrune".to_string(),
             description,
             ..Default::default()
         }
@@ -158,7 +158,7 @@ impl ksni::Tray for SystemTrayMenu {
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         let mut menu_items = vec![
             StandardItem {
-                label: "Open Overskride".to_string(),
+                label: "Open Bindrune".to_string(),
                 activate: Box::new(|tray: &mut Self| tray.request(TrayRequest::OpenWindow)),
                 ..Default::default()
             }

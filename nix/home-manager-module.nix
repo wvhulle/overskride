@@ -1,4 +1,4 @@
-overskrideFlake:
+bindruneFlake:
 {
   config,
   lib,
@@ -6,24 +6,24 @@ overskrideFlake:
   ...
 }:
 let
-  overskrideSettings = config.services.overskride;
+  bindruneSettings = config.services.bindrune;
 in
 {
-  options.services.overskride = {
-    enable = lib.mkEnableOption "Overskride in the background as Bluetooth pairing agent and file receiver";
+  options.services.bindrune = {
+    enable = lib.mkEnableOption "Bindrune in the background as Bluetooth pairing agent and file receiver";
     package = lib.mkOption {
       type = lib.types.package;
-      default = overskrideFlake.packages.${pkgs.stdenv.hostPlatform.system}.default;
-      defaultText = lib.literalExpression "overskride.packages.\${pkgs.stdenv.hostPlatform.system}.default";
-      description = "The Overskride package to run.";
+      default = bindruneFlake.packages.${pkgs.stdenv.hostPlatform.system}.default;
+      defaultText = lib.literalExpression "bindrune.packages.\${pkgs.stdenv.hostPlatform.system}.default";
+      description = "The Bindrune package to run.";
     };
   };
 
-  config = lib.mkIf overskrideSettings.enable {
-    home.packages = [ overskrideSettings.package ];
-    systemd.user.services.overskride = {
+  config = lib.mkIf bindruneSettings.enable {
+    home.packages = [ bindruneSettings.package ];
+    systemd.user.services.bindrune = {
       Unit = {
-        Description = "Overskride Bluetooth pairing agent and file receiver";
+        Description = "Bindrune Bluetooth pairing agent and file receiver";
         PartOf = [ "graphical-session.target" ];
         After = [
           "graphical-session.target"
@@ -32,8 +32,8 @@ in
         Requisite = [ "graphical-session.target" ];
       };
       Service = {
-        ExecStart = "${lib.getExe overskrideSettings.package} --background";
-        Environment = [ "OVERSKRIDE_SYSTEMD_SERVICE=1" ];
+        ExecStart = "${lib.getExe bindruneSettings.package} --background";
+        Environment = [ "BINDRUNE_SYSTEMD_SERVICE=1" ];
         Restart = "on-failure";
       };
       Install.WantedBy = [ "graphical-session.target" ];

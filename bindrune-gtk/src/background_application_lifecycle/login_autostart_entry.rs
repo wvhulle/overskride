@@ -8,7 +8,7 @@ use ashpd::desktop::background::Background;
 use crate::background_application_lifecycle::gsettings_stored_preferences::APPLICATION_ID;
 
 pub const BACKGROUND_FLAG: &str = "--background";
-const SYSTEMD_SERVICE_MARKER: &str = "OVERSKRIDE_SYSTEMD_SERVICE";
+const SYSTEMD_SERVICE_MARKER: &str = "BINDRUNE_SYSTEMD_SERVICE";
 const BACKGROUND_REASON: &str = "Pair devices and receive files while the window is closed";
 
 #[derive(Debug)]
@@ -68,8 +68,8 @@ fn autostart_entry_path() -> Result<PathBuf, LoginAutostartError> {
 
 fn autostart_entry_text() -> String {
     format!(
-        "[Desktop Entry]\nType=Application\nName=Overskride\nIcon={APPLICATION_ID}\\
-         nExec=overskride {BACKGROUND_FLAG}\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n"
+        "[Desktop Entry]\nType=Application\nName=Bindrune\nIcon={APPLICATION_ID}\\
+         nExec=bindrune {BACKGROUND_FLAG}\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n"
     )
 }
 
@@ -90,7 +90,7 @@ async fn request_portal_background(start_at_login: bool) -> Result<(), LoginAuto
     Background::request()
         .reason(BACKGROUND_REASON)
         .auto_start(start_at_login)
-        .command(["overskride", BACKGROUND_FLAG])
+        .command(["bindrune", BACKGROUND_FLAG])
         .send()
         .await?
         .response()?;

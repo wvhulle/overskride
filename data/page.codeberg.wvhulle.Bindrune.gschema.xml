@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<schemalist gettext-domain="overskride">
-	<schema id="io.github.kaii_lb.Overskride" path="/io/github/kaii_lb/Overskride/">
+<schemalist gettext-domain="bindrune">
+	<schema id="page.codeberg.wvhulle.Bindrune" path="/page/codeberg/wvhulle/Bindrune/">
 		<key name="window-width" type="i">
 			<default>-1</default>
 			<summary>default window width</summary>

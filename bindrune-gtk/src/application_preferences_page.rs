@@ -71,7 +71,7 @@ impl SimpleComponent for ApplicationPreferencesPage {
 
                 adw::PreferencesGroup {
                     set_title: "Background",
-                    set_description: Some("Pairing requests and incoming files need Overskride to be running."),
+                    set_description: Some("Pairing requests and incoming files need Bindrune to be running."),
 
                     #[name = "run_in_background_row"]
                     adw::SwitchRow {

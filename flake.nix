@@ -50,12 +50,12 @@
           '';
         };
 
-      overskrideBuild =
+      bindruneBuild =
         { pkgs, craneLib }:
         let
           inherit (pkgs) lib;
 
-          applicationId = "io.github.kaii_lb.Overskride";
+          applicationId = "page.codeberg.wvhulle.Bindrune";
 
           rustSource = lib.fileset.toSource {
             root = ./.;
@@ -68,7 +68,7 @@
 
           commonArgs = {
             src = rustSource;
-            pname = "overskride";
+            pname = "bindrune";
             version = (lib.importTOML ./bindrune-gtk/Cargo.toml).package.version;
             cargoExtraArgs = "--locked --package bindrune-gtk";
             strictDeps = true;
@@ -88,7 +88,7 @@
 
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
 
-          overskrideBinary = craneLib.buildPackage (
+          bindruneBinary = craneLib.buildPackage (
             commonArgs
             // {
               inherit cargoArtifacts;
@@ -98,13 +98,13 @@
 
           packageMeta = {
             description = "Bluetooth and OBEX client for GNOME";
-            mainProgram = "overskride";
+            mainProgram = "bindrune";
             license = lib.licenses.gpl3Plus;
             platforms = lib.platforms.linux;
           };
 
-          overskrideApplication = pkgs.stdenv.mkDerivation {
-            pname = "overskride-application";
+          bindruneApplication = pkgs.stdenv.mkDerivation {
+            pname = "bindrune-application";
             inherit (commonArgs) version;
             src = lib.fileset.toSource {
               root = ./.;
@@ -121,7 +121,7 @@
             dontBuild = true;
             installPhase = ''
               runHook preInstall
-              install -Dm755 ${overskrideBinary}/bin/overskride $out/bin/overskride
+              install -Dm755 ${bindruneBinary}/bin/bindrune $out/bin/bindrune
               make install-metainfo install-schema install-icons install-systemd-unit DESTDIR=$out PREFIX= BINARY_DIRECTORY=$out/bin
               glib-compile-schemas --strict $out/share/glib-2.0/schemas
               runHook postInstall
@@ -131,9 +131,9 @@
 
           desktopEntry = pkgs.makeDesktopItem {
             name = applicationId;
-            desktopName = "Overskride";
+            desktopName = "Bindrune";
             comment = "A simple yet powerful bluetooth app!";
-            exec = lib.getExe overskrideApplication;
+            exec = lib.getExe bindruneApplication;
             icon = applicationId;
             categories = [ "Utility" ];
             keywords = [
@@ -148,11 +148,11 @@
             terminal = false;
           };
 
-          overskride = pkgs.symlinkJoin {
-            pname = "overskride";
+          bindrune = pkgs.symlinkJoin {
+            pname = "bindrune";
             inherit (commonArgs) version;
             paths = [
-              overskrideApplication
+              bindruneApplication
               desktopEntry
             ];
             meta = packageMeta;
@@ -162,13 +162,13 @@
           inherit
             commonArgs
             cargoArtifacts
-            overskride
+            bindrune
             ;
         };
     in
     {
       overlays.default = final: _previous: {
-        overskride = self.packages.${final.stdenv.hostPlatform.system}.default;
+        bindrune = self.packages.${final.stdenv.hostPlatform.system}.default;
       };
 
       homeManagerModules.default = import ./nix/home-manager-module.nix self;
@@ -178,24 +178,24 @@
       packages = forEachSystem (
         systemContext:
         let
-          builtOverskride = overskrideBuild systemContext;
+          builtBindrune = bindruneBuild systemContext;
         in
         {
-          default = builtOverskride.overskride;
-          inherit (builtOverskride) overskride;
+          default = builtBindrune.bindrune;
+          inherit (builtBindrune) bindrune;
         }
       );
 
       checks = forEachSystem (
         { craneLib, pkgs }@systemContext:
         let
-          builtOverskride = overskrideBuild systemContext;
+          builtBindrune = bindruneBuild systemContext;
           backgroundServiceSystem = nixpkgs.lib.nixosSystem {
             inherit (pkgs.stdenv.hostPlatform) system;
             modules = [
               self.nixosModules.default
               {
-                services.overskride.enable = true;
+                services.bindrune.enable = true;
                 boot.loader.grub.enable = false;
                 fileSystems."/".device = "nodev";
                 system.stateVersion = "25.11";
@@ -217,14 +217,14 @@
                 touch $out
               '';
           nixos-background-service =
-            backgroundServiceSystem.config.systemd.user.units."overskride.service".unit;
+            backgroundServiceSystem.config.systemd.user.units."bindrune.service".unit;
           tests = craneLib.cargoTest (
-            builtOverskride.commonArgs // { inherit (builtOverskride) cargoArtifacts; }
+            builtBindrune.commonArgs // { inherit (builtBindrune) cargoArtifacts; }
           );
           clippy = craneLib.cargoClippy (
-            builtOverskride.commonArgs
+            builtBindrune.commonArgs
             // {
-              inherit (builtOverskride) cargoArtifacts;
+              inherit (builtBindrune) cargoArtifacts;
               cargoClippyExtraArgs = "--all-targets";
             }
           );
@@ -236,13 +236,13 @@
       devShells = forEachSystem (
         { pkgs, craneLib }@systemContext:
         let
-          builtOverskride = overskrideBuild systemContext;
+          builtBindrune = bindruneBuild systemContext;
         in
         {
           default = craneLib.devShell {
             packages =
-              builtOverskride.commonArgs.nativeBuildInputs
-              ++ builtOverskride.commonArgs.buildInputs
+              builtBindrune.commonArgs.nativeBuildInputs
+              ++ builtBindrune.commonArgs.buildInputs
               ++ [
                 (treefmtWithNightlyRustfmt pkgs)
                 (nightlyRustfmt pkgs)

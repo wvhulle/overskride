@@ -1,0 +1,14 @@
+[Unit]
+Description=Bindrune Bluetooth pairing agent and file receiver
+Documentation=https://codeberg.org/wvhulle/bindrune
+PartOf=graphical-session.target
+After=graphical-session.target bluetooth.target
+Requisite=graphical-session.target
+
+[Service]
+ExecStart=@bindir@/bindrune --background
+Environment=BINDRUNE_SYSTEMD_SERVICE=1
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

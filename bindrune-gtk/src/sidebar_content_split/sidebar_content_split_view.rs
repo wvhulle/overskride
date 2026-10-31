@@ -455,7 +455,7 @@ impl Component for SidebarContentSplitView {
                 "_Refresh Devices" => RefreshDevicesAction,
             },
             section! {
-                "_About Overskride" => AboutAction,
+                "_About Bindrune" => AboutAction,
                 "_Quit" => QuitAction,
             },
         }

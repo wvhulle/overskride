@@ -314,7 +314,7 @@ impl fmt::Display for BluezRequestFailure {
             }
             Self::ServiceConnectionLost => {
                 "The connection to the Bluetooth service was lost. Check that bluetoothd is \
-                 running, then restart Overskride."
+                 running, then restart Bindrune."
             }
             Self::Failed => {
                 "BlueZ could not complete the request. Turn the device off and on again, then \

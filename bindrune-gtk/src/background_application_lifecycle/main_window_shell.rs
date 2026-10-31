@@ -33,7 +33,7 @@ use crate::{
 };
 
 const NARROW_WINDOW_CONDITION: &str = "max-width: 700sp";
-const BLUETOOTH_SERVICE_HELP: &str = "Start the Bluetooth service and open Overskride \
+const BLUETOOTH_SERVICE_HELP: &str = "Start the Bluetooth service and open Bindrune \
                                       again:\n\nsudo systemctl enable --now bluetooth\n\nIf the \
                                       service does not exist, install the bluez package for your \
                                       distribution first.";
@@ -264,7 +264,7 @@ impl AsyncComponent for MainWindowShell {
 
     fn init_root() -> Self::Root {
         adw::ApplicationWindow::builder()
-            .title("Overskride")
+            .title("Bindrune")
             .width_request(360)
             .height_request(500)
             .default_width(900)

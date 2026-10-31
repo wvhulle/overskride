@@ -1,15 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.kaii_lb.Overskride</id>
+  <id>page.codeberg.wvhulle.Bindrune</id>
   
-  <name>Overskride</name>
+  <name>Bindrune</name>
   <summary>A simple but powerful bluetooth app</summary>
   
-  <developer id="io.github.kaii_lb">
+  <developer id="page.codeberg.wvhulle">
     <name>kaii and Willem Vanhulle</name>
   </developer>
-  <url type="homepage">https://github.com/kaii-lb/overskride</url>
-  <url type="bugtracker">https://github.com/kaii-lb/overskride/issues</url>
+  <url type="homepage">https://codeberg.org/wvhulle/bindrune</url>
+  <url type="bugtracker">https://codeberg.org/wvhulle/bindrune/issues</url>
+  <url type="vcs-browser">https://codeberg.org/wvhulle/bindrune</url>
 
   <metadata_license>CC-BY-4.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
@@ -45,18 +46,18 @@
     </release>
   </releases>
   
-  <launchable type="desktop-id">io.github.kaii_lb.Overskride.desktop</launchable>
+  <launchable type="desktop-id">page.codeberg.wvhulle.Bindrune.desktop</launchable>
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/kaii-lb/overskride/main/assets/images/overskride.png</image>
+      <image>https://codeberg.org/wvhulle/bindrune/raw/branch/main/assets/images/bindrune.png</image>
       <caption>multi-window screenshot of app</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/kaii-lb/overskride/main/assets/images/center.png</image>
+      <image>https://codeberg.org/wvhulle/bindrune/raw/branch/main/assets/images/center.png</image>
       <caption>main screen of app</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/kaii-lb/overskride/main/assets/images/left.png</image>
+      <image>https://codeberg.org/wvhulle/bindrune/raw/branch/main/assets/images/left.png</image>
       <caption>minimized form of connected device</caption>
     </screenshot>
   </screenshots>

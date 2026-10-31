@@ -1,9 +1,9 @@
 use std::{path::PathBuf, process::Command};
 
-const APPLICATION_ID: &str = "io.github.kaii_lb.Overskride";
+const APPLICATION_ID: &str = "page.codeberg.wvhulle.Bindrune";
 const CUSTOM_ICON_DIRECTORY: &str = "src/icons/symbolic/actions";
 const SCHEMA_SOURCE_DIRECTORY: &str = "../data";
-const SCHEMA_FILE: &str = "../data/io.github.kaii_lb.Overskride.gschema.xml";
+const SCHEMA_FILE: &str = "../data/page.codeberg.wvhulle.Bindrune.gschema.xml";
 
 fn compile_settings_schema() {
     let schema_directory =
@@ -18,7 +18,7 @@ fn compile_settings_schema() {
         .expect("cannot run glib-compile-schemas, is glib installed?");
     assert!(compiler_status.success(), "glib-compile-schemas failed");
     println!(
-        "cargo:rustc-env=OVERSKRIDE_COMPILED_SCHEMAS={}",
+        "cargo:rustc-env=BINDRUNE_COMPILED_SCHEMAS={}",
         schema_directory.display()
     );
 }

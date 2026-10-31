@@ -2,12 +2,12 @@
 Version=1.0
 Type=Application
 
-Name=Overskride
+Name=Bindrune
 Comment=A simple yet powerful bluetooth app!
 Categories=Utility;
 Keywords=blue;bluetooth;transfer;send;audio;share;
 
-Icon=io.github.kaii_lb.Overskride
+Icon=page.codeberg.wvhulle.Bindrune
 Terminal=false
-Exec=overskride
+Exec=bindrune
 StartupNotify=true
