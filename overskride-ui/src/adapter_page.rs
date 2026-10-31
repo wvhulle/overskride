@@ -1,7 +1,7 @@
 use futures::StreamExt;
 use overskride_bluetooth::adapter_state::{
     AdapterSnapshot, adapter_changes, set_alias, set_discoverable, set_discoverable_timeout,
-    set_powered,
+    set_pairable, set_powered,
 };
 use overskride_bluetooth::bluetooth_error::BluetoothError;
 use overskride_bluetooth::session::BluetoothSession;
@@ -27,10 +27,11 @@ pub struct AdapterPage {
 
 #[derive(Debug)]
 pub enum AdapterPageInput {
-    SetPowered(bool),
-    SetDiscoverable(bool),
-    SetDiscoverableTimeout(u32),
-    SetAlias(String),
+    PoweredToggled(bool),
+    DiscoverableToggled(bool),
+    PairableToggled(bool),
+    DiscoverableTimeoutChosen(u32),
+    AliasApplied(String),
 }
 
 #[derive(Debug)]
@@ -75,7 +76,8 @@ impl Component for AdapterPage {
                 PageHeader {
                     #[template_child]
                     header_icon {
-                        set_icon_name: Some("bluetooth-symbolic"),
+                        #[watch]
+                        set_icon_name: Some(model.adapter.hardware.attachment.icon_name()),
                     },
                     #[template_child]
                     header_title {
@@ -93,7 +95,7 @@ impl Component for AdapterPage {
                         #[block_signal(powered_handler)]
                         set_active: model.adapter.powered,
                         connect_active_notify[sender] => move |switch_row| {
-                            sender.input(AdapterPageInput::SetPowered(switch_row.is_active()));
+                            sender.input(AdapterPageInput::PoweredToggled(switch_row.is_active()));
                         } @powered_handler,
                     },
 
@@ -104,7 +106,7 @@ impl Component for AdapterPage {
                         #[block_signal(discoverable_handler)]
                         set_active: model.adapter.discoverable,
                         connect_active_notify[sender] => move |switch_row| {
-                            sender.input(AdapterPageInput::SetDiscoverable(switch_row.is_active()));
+                            sender.input(AdapterPageInput::DiscoverableToggled(switch_row.is_active()));
                         } @discoverable_handler,
                     },
 
@@ -116,8 +118,26 @@ impl Component for AdapterPage {
                         #[block_signal(timeout_handler)]
                         set_value: f64::from(model.adapter.discoverable_timeout_minutes),
                         connect_value_notify[sender] => move |spin_row| {
-                            sender.input(AdapterPageInput::SetDiscoverableTimeout(whole_minutes(spin_row.value())));
+                            sender.input(AdapterPageInput::DiscoverableTimeoutChosen(whole_minutes(spin_row.value())));
                         } @timeout_handler,
+                    },
+
+                    adw::SwitchRow {
+                        set_title: "Pairable",
+                        set_subtitle: "Accept incoming pairing requests",
+                        #[watch]
+                        #[block_signal(pairable_handler)]
+                        set_active: model.adapter.pairable,
+                        connect_active_notify[sender] => move |switch_row| {
+                            sender.input(AdapterPageInput::PairableToggled(switch_row.is_active()));
+                        } @pairable_handler,
+                    },
+
+                    adw::ActionRow {
+                        set_title: "Scanning",
+                        add_css_class: "property",
+                        #[watch]
+                        set_subtitle: if model.adapter.discovering { "Yes" } else { "No" },
                     },
                 },
 
@@ -130,7 +150,7 @@ impl Component for AdapterPage {
                         #[track(model.alias_changed)]
                         set_text: &model.adapter.alias,
                         connect_apply[sender] => move |entry_row| {
-                            sender.input(AdapterPageInput::SetAlias(entry_row.text().to_string()));
+                            sender.input(AdapterPageInput::AliasApplied(entry_row.text().to_string()));
                         },
                     },
 
@@ -140,6 +160,64 @@ impl Component for AdapterPage {
                         add_css_class: "property",
                         #[watch]
                         set_subtitle: &model.adapter.address.to_string(),
+                    },
+
+                    adw::ActionRow {
+                        set_title: "Address Type",
+                        add_css_class: "property",
+                        #[watch]
+                        set_subtitle: &model.adapter.address_type.to_string(),
+                    },
+                },
+
+                adw::PreferencesGroup {
+                    set_title: "Hardware",
+
+                    adw::ActionRow {
+                        set_title: "Connection",
+                        add_css_class: "property",
+                        #[watch]
+                        set_subtitle: model.adapter.hardware.attachment.describe_attachment(),
+                    },
+
+                    adw::ActionRow {
+                        set_title: "Vendor",
+                        set_subtitle_selectable: true,
+                        add_css_class: "property",
+                        #[watch]
+                        set_visible: model.adapter.hardware.vendor_name.is_some(),
+                        #[watch]
+                        set_subtitle: model.adapter.hardware.vendor_name.as_deref().unwrap_or_default(),
+                    },
+
+                    adw::ActionRow {
+                        set_title: "Model",
+                        set_subtitle_selectable: true,
+                        add_css_class: "property",
+                        #[watch]
+                        set_visible: model.adapter.hardware.model_name.is_some(),
+                        #[watch]
+                        set_subtitle: model.adapter.hardware.model_name.as_deref().unwrap_or_default(),
+                    },
+
+                    adw::ActionRow {
+                        set_title: "Kernel Driver",
+                        set_subtitle_selectable: true,
+                        add_css_class: "property",
+                        #[watch]
+                        set_visible: model.adapter.hardware.kernel_driver.is_some(),
+                        #[watch]
+                        set_subtitle: model.adapter.hardware.kernel_driver.as_deref().unwrap_or_default(),
+                    },
+
+                    adw::ActionRow {
+                        set_title: "Hardware ID",
+                        set_subtitle_selectable: true,
+                        add_css_class: "property",
+                        #[watch]
+                        set_visible: model.adapter.hardware.hardware_id.is_some(),
+                        #[watch]
+                        set_subtitle: model.adapter.hardware.hardware_id.as_deref().unwrap_or_default(),
                     },
 
                     adw::ActionRow {
@@ -194,14 +272,14 @@ impl Component for AdapterPage {
         let session = self.session.clone();
         let adapter_name = self.adapter.adapter_name.clone();
         match input {
-            AdapterPageInput::SetPowered(powered) if powered != self.adapter.powered => {
+            AdapterPageInput::PoweredToggled(powered) if powered != self.adapter.powered => {
                 sender.oneshot_command(async move {
                     AdapterPageCommand::ActionFinished(
                         set_powered(&session, &adapter_name, powered).await,
                     )
                 });
             }
-            AdapterPageInput::SetDiscoverable(discoverable)
+            AdapterPageInput::DiscoverableToggled(discoverable)
                 if discoverable != self.adapter.discoverable =>
             {
                 sender.oneshot_command(async move {
@@ -210,7 +288,14 @@ impl Component for AdapterPage {
                     )
                 });
             }
-            AdapterPageInput::SetDiscoverableTimeout(timeout_minutes)
+            AdapterPageInput::PairableToggled(pairable) if pairable != self.adapter.pairable => {
+                sender.oneshot_command(async move {
+                    AdapterPageCommand::ActionFinished(
+                        set_pairable(&session, &adapter_name, pairable).await,
+                    )
+                });
+            }
+            AdapterPageInput::DiscoverableTimeoutChosen(timeout_minutes)
                 if timeout_minutes != self.adapter.discoverable_timeout_minutes =>
             {
                 sender.oneshot_command(async move {
@@ -219,7 +304,7 @@ impl Component for AdapterPage {
                     )
                 });
             }
-            AdapterPageInput::SetAlias(alias) => {
+            AdapterPageInput::AliasApplied(alias) => {
                 sender.oneshot_command(async move {
                     AdapterPageCommand::ActionFinished(
                         set_alias(&session, &adapter_name, alias).await,

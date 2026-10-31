@@ -30,10 +30,7 @@ impl BluetoothSession {
         adapter_names.sort();
         Ok(adapter_names
             .into_iter()
-            .map(|adapter_name| RadioDescription {
-                radio_label: describe_radio(&adapter_name),
-                adapter_name,
-            })
+            .map(|adapter_name| describe_radio(&adapter_name))
             .collect())
     }
 

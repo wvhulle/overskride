@@ -67,6 +67,7 @@
               gtk4
               libadwaita
               dbus
+              systemdLibs
               libpulseaudio
             ];
           };

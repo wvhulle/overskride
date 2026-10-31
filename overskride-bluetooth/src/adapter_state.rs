@@ -2,7 +2,7 @@ use bluer::{AdapterEvent, AdapterProperty};
 use futures::{Stream, StreamExt};
 
 use crate::bluetooth_error::BluetoothError;
-use crate::radios::describe_radio;
+use crate::radios::{RadioHardware, describe_radio};
 use crate::session::BluetoothSession;
 
 const SECONDS_PER_MINUTE: u32 = 60;
@@ -11,22 +11,31 @@ const SECONDS_PER_MINUTE: u32 = 60;
 pub struct AdapterSnapshot {
     pub adapter_name: String,
     pub radio_label: String,
+    pub hardware: RadioHardware,
     pub address: bluer::Address,
+    pub address_type: bluer::AddressType,
     pub alias: String,
     pub powered: bool,
     pub discoverable: bool,
+    pub pairable: bool,
+    pub discovering: bool,
     pub discoverable_timeout_minutes: u32,
 }
 
 impl AdapterSnapshot {
     async fn read(adapter: &bluer::Adapter) -> Result<Self, BluetoothError> {
+        let radio_description = describe_radio(adapter.name());
         Ok(Self {
-            adapter_name: adapter.name().to_string(),
-            radio_label: describe_radio(adapter.name()),
+            adapter_name: radio_description.adapter_name,
+            radio_label: radio_description.radio_label,
+            hardware: radio_description.hardware,
             address: adapter.address().await?,
+            address_type: adapter.address_type().await?,
             alias: adapter.alias().await?,
             powered: adapter.is_powered().await?,
             discoverable: adapter.is_discoverable().await?,
+            pairable: adapter.is_pairable().await?,
+            discovering: adapter.is_discovering().await?,
             discoverable_timeout_minutes: adapter.discoverable_timeout().await?
                 / SECONDS_PER_MINUTE,
         })
@@ -36,6 +45,8 @@ impl AdapterSnapshot {
         match changed_property {
             AdapterProperty::Powered(powered) => self.powered = powered,
             AdapterProperty::Discoverable(discoverable) => self.discoverable = discoverable,
+            AdapterProperty::Pairable(pairable) => self.pairable = pairable,
+            AdapterProperty::Discovering(discovering) => self.discovering = discovering,
             AdapterProperty::Alias(alias) => self.alias = alias,
             AdapterProperty::DiscoverableTimeout(timeout_seconds) => {
                 self.discoverable_timeout_minutes = timeout_seconds / SECONDS_PER_MINUTE;
@@ -96,6 +107,16 @@ pub async fn set_discoverable(
 ) -> Result<AdapterSnapshot, BluetoothError> {
     let adapter = session.adapter(adapter_name)?;
     adapter.set_discoverable(discoverable).await?;
+    AdapterSnapshot::read(&adapter).await
+}
+
+pub async fn set_pairable(
+    session: &BluetoothSession,
+    adapter_name: &str,
+    pairable: bool,
+) -> Result<AdapterSnapshot, BluetoothError> {
+    let adapter = session.adapter(adapter_name)?;
+    adapter.set_pairable(pairable).await?;
     AdapterSnapshot::read(&adapter).await
 }
 

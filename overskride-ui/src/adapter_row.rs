@@ -26,14 +26,15 @@ impl FactoryComponent for AdapterRow {
     view! {
         adw::ActionRow {
             set_title: &self.radio.radio_label,
-            set_subtitle: &self.radio.adapter_name,
+            set_subtitle: self.radio.radio_subtitle(),
             set_activatable: true,
             connect_activated[sender, adapter_name = self.radio.adapter_name.clone()] => move |_activated_row| {
                 let _main_view_gone = sender.output(adapter_name.clone());
             },
 
             add_prefix = &gtk::Image {
-                set_icon_name: Some("bluetooth-symbolic"),
+                set_icon_name: Some(self.radio.hardware.attachment.icon_name()),
+                set_tooltip_text: Some(self.radio.hardware.attachment.describe_attachment()),
             },
 
             add_suffix = &gtk::Image {
