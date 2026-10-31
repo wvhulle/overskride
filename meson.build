@@ -9,7 +9,7 @@ i18n = import('i18n')
 gnome = import('gnome')
 
 subdir('data')
-subdir('src')
+subdir('overskride-ui')
 subdir('po')
 
 development_environment = environment()

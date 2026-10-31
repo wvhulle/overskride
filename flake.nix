@@ -45,16 +45,17 @@
             root = ./.;
             fileset = lib.fileset.unions [
               (craneLib.fileset.commonCargoSources ./.)
-              ./src/overskride.gresource.xml
-              ./src/gtk
-              ./src/icons
+              ./overskride-ui/src/overskride.gresource.xml
+              ./overskride-ui/src/gtk
+              ./overskride-ui/src/icons
             ];
           };
 
           commonArgs = {
             src = rustSource;
             pname = "overskride";
-            version = (lib.importTOML ./Cargo.toml).package.version;
+            version = (lib.importTOML ./overskride-ui/Cargo.toml).package.version;
+            cargoExtraArgs = "--locked --package overskride-ui";
             strictDeps = true;
             nativeBuildInputs = with pkgs; [
               pkg-config

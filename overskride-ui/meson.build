@@ -1,6 +1,6 @@
 cargo_bin  = find_program('cargo')
-cargo_opt  = [ '--manifest-path', meson.project_source_root() / 'Cargo.toml' ]
-cargo_opt += [ '--target-dir', meson.project_build_root()  / 'src' ]
+cargo_opt  = [ '--manifest-path', meson.project_source_root() / 'Cargo.toml', '--package', 'overskride-ui' ]
+cargo_opt += [ '--target-dir', meson.project_build_root() / 'overskride-ui' ]
 cargo_env  = [ 'CARGO_HOME=' + meson.project_build_root()  / 'cargo-home' ]
 
 if get_option('buildtype') == 'release'
@@ -21,6 +21,6 @@ cargo_build = custom_target(
   command: [
     'env', cargo_env,
     cargo_bin, 'build',
-    cargo_opt, '&&', 'cp', 'src' / rust_target / meson.project_name(), '@OUTPUT@',
+    cargo_opt, '&&', 'cp', 'overskride-ui' / rust_target / meson.project_name(), '@OUTPUT@',
   ]
 )

@@ -11,8 +11,8 @@ meson setup $path --wipe
 meson configure $path -Dbuildtype=release -Dprefix=/usr
 meson compile -C $path
 
-mkdir -p $path/src/release/package
-cd $path/src/release/package
+mkdir -p $path/overskride-ui/release/package
+cd $path/overskride-ui/release/package
 
 mkdir -p usr/bin
 mkdir -p usr/share/overskride

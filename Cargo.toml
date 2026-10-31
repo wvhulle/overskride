@@ -1,26 +1,6 @@
-[package]
-name = "overskride"
-version = "0.6.5"
-edition = "2021"
-authors = ["kaii_lb <imkaiilb@gmail.com"]
-
-[dependencies]
-adw = { version = "0.8.0", package = "libadwaita", features = ["v1_4"] }
-bluer = { version = "0.17.4", features = ["dbus", "dbus-crossroads", "bluetoothd", "id", "serde"] }
-dbus = "0.9.9"
-dbus-crossroads = "0.5.2"
-futures = { version = "0.3.31", features = ["futures-executor"] }
-gtk = { version = "0.10.2", package = "gtk4", features = ["blueprint"] }
-phf = { version = "0.13.1", features = ["phf_macros", "macros"] }
-tokio = { version = "1.48.0", features = ["full"] }
-tokio-util = "0.7.17"
-uuid = "1.18.1"
-pulseaudio = { version = "2.28.1", package = "libpulse-binding", features = ["pa_v15"] }
-async-channel = "2.5.0"
-lazy_static = "1.4.0"
-
-[build-dependencies]
-glib-build-tools = "0.21"
+[workspace]
+resolver = "2"
+members = ["overskride-ui"]
 
 [patch.crates-io]
 bluer = { git = "https://github.com/wvhulle/bluer", rev = "907f8ec76cf25bf536c8ac6a83d8ce6442575cc4" }
