@@ -57,7 +57,6 @@ struct StepWidgets {
 
 pub struct PairingTimelineWidgets {
     preferences_group: adw::PreferencesGroup,
-    progress_bar: gtk::LevelBar,
     radio_expander: adw::ExpanderRow,
     radio_info_icon: gtk::Image,
     radio_rows: Vec<adw::ActionRow>,
@@ -68,7 +67,7 @@ pub struct PairingTimelineWidgets {
 fn node_icon(node_state: StepNodeState) -> (&'static str, &'static str) {
     match node_state {
         StepNodeState::Done => ("object-select-symbolic", "success"),
-        StepNodeState::Next | StepNodeState::Running => ("go-next-symbolic", "accent"),
+        StepNodeState::Next | StepNodeState::Running => ("media-record-symbolic", "accent"),
         StepNodeState::Warning => ("dialog-warning-symbolic", "warning"),
         StepNodeState::Failed => ("dialog-error-symbolic", "error"),
         StepNodeState::Pending => ("content-loading-symbolic", "dim-label"),
@@ -222,10 +221,7 @@ fn forget_device_row(sender: &ComponentSender<PairingTimeline>) -> adw::ActionRo
     forget_row
 }
 
-fn build_property_row(
-    property_row: &PropertyRow,
-    sender: &ComponentSender<PairingTimeline>,
-) -> adw::PreferencesRow {
+fn build_property_row(property_row: &PropertyRow) -> adw::PreferencesRow {
     let action_row = match property_row {
         PropertyRow::Inline { key, value, hint } => inline_value_row(key, value, hint, ""),
         PropertyRow::InlineWithIcon {
@@ -235,7 +231,6 @@ fn build_property_row(
             icon_name,
         } => inline_value_row(key, value, hint, icon_name),
         PropertyRow::Stacked { key, value, hint } => stacked_value_row(key, value, hint),
-        PropertyRow::ForgetDevice => forget_device_row(sender),
     };
     action_row.upcast()
 }
@@ -243,9 +238,15 @@ fn build_property_row(
 fn render_step(
     step_widgets: &mut StepWidgets,
     step_presentation: &StepPresentation,
+    previous_presentation: Option<&StepPresentation>,
     sender: &ComponentSender<PairingTimeline>,
 ) {
     let expander_row = &step_widgets.expander_row;
+    let previously_needed_attention =
+        previous_presentation.is_some_and(|previous_step| previous_step.needs_attention);
+    if step_presentation.needs_attention && !previously_needed_attention {
+        expander_row.set_expanded(true);
+    }
     expander_row.set_visible(step_presentation.visible);
     expander_row.set_sensitive(step_presentation.sensitive);
     expander_row.set_subtitle(&glib::markup_escape_text(&step_presentation.status_text));
@@ -307,10 +308,14 @@ fn render_step(
         .property_rows
         .drain(..)
         .for_each(|previous_row| expander_row.remove(&previous_row));
+    let forget_rows = step_presentation
+        .offers_forget
+        .then(|| forget_device_row(sender).upcast());
     step_widgets.property_rows = step_presentation
         .property_rows
         .iter()
-        .map(|property_row| build_property_row(property_row, sender))
+        .map(build_property_row)
+        .chain(forget_rows)
         .collect();
     step_widgets
         .property_rows
@@ -374,17 +379,6 @@ fn render_timeline(
     widgets
         .preferences_group
         .set_description(Some(&glib::markup_escape_text(&presentation.summary)));
-    let step_count = presentation.applicable_step_count.max(1);
-    widgets
-        .progress_bar
-        .set_max_value(f64::from(u32::try_from(step_count).unwrap_or(1)));
-    widgets.progress_bar.set_value(f64::from(
-        u32::try_from(presentation.completed_steps).unwrap_or_default(),
-    ));
-    widgets.progress_bar.set_tooltip_text(Some(&format!(
-        "{} of {} steps done",
-        presentation.completed_steps, presentation.applicable_step_count
-    )));
 
     let radios = &presentation.radios;
     if radios != &widgets.rendered_presentation.radios {
@@ -422,8 +416,13 @@ fn render_timeline(
         .filter(|(step_index, (_step_widgets, step_presentation))| {
             rendered_steps.get(*step_index) != Some(*step_presentation)
         })
-        .for_each(|(_step_index, (step_widgets, step_presentation))| {
-            render_step(step_widgets, step_presentation, sender);
+        .for_each(|(step_index, (step_widgets, step_presentation))| {
+            render_step(
+                step_widgets,
+                step_presentation,
+                rendered_steps.get(step_index),
+                sender,
+            );
         });
     widgets.rendered_presentation = presentation.clone();
 }
@@ -444,19 +443,6 @@ impl SimpleComponent for PairingTimeline {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let progress_bar = gtk::LevelBar::builder()
-            .mode(gtk::LevelBarMode::Discrete)
-            .min_value(0.0)
-            .width_request(120)
-            .valign(gtk::Align::Center)
-            .build();
-        ["low", "high", "full"]
-            .iter()
-            .for_each(|default_offset_name| {
-                progress_bar.remove_offset_value(Some(default_offset_name));
-            });
-        root.set_header_suffix(Some(&progress_bar));
-
         let radio_expander = adw::ExpanderRow::builder().title("Radio").build();
         radio_expander.add_prefix(&gtk::Image::from_icon_name("bluetooth-symbolic"));
         let radio_info_icon = gtk::Image::builder()
@@ -480,7 +466,6 @@ impl SimpleComponent for PairingTimeline {
 
         let mut widgets = PairingTimelineWidgets {
             preferences_group: root.clone(),
-            progress_bar,
             radio_expander,
             radio_info_icon,
             radio_rows: Vec::new(),

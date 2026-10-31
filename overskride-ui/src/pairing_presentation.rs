@@ -91,7 +91,6 @@ pub enum PropertyRow {
         value: String,
         hint: PropertyHint,
     },
-    ForgetDevice,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -107,6 +106,8 @@ pub struct StepPresentation {
     pub button: StepButtonSlot,
     pub policy_selector: PolicySelector,
     pub property_rows: Vec<PropertyRow>,
+    pub needs_attention: bool,
+    pub offers_forget: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -353,7 +354,6 @@ impl TimelineInputs<'_> {
                     ),
                 )
             });
-        let forget_rows = snapshot.paired.then_some(PropertyRow::ForgetDevice);
         StepParts {
             node_state: if bond_missing {
                 StepNodeState::Warning
@@ -371,7 +371,7 @@ impl TimelineInputs<'_> {
             } else {
                 StepButtonSlot::Hidden
             },
-            property_rows: storage_rows.into_iter().chain(forget_rows).collect(),
+            property_rows: storage_rows.into_iter().collect(),
         }
     }
 
@@ -575,6 +575,15 @@ impl TimelineInputs<'_> {
             } else {
                 PolicySelector::Absent
             },
+            needs_attention: is_step_applicable(self.snapshot, step)
+                && matches!(
+                    step_parts.node_state,
+                    StepNodeState::Next
+                        | StepNodeState::Running
+                        | StepNodeState::Failed
+                        | StepNodeState::Warning
+                ),
+            offers_forget: step == PairingStep::Bonding && self.snapshot.paired,
             property_rows: step_parts.property_rows,
         }
     }
@@ -770,7 +779,50 @@ mod tests {
         let bonding = step_of(&presentation, PairingStep::Bonding);
         assert_eq!(bonding.node_state, StepNodeState::Failed);
         assert_eq!(bonding.status_text, "no key");
-        assert!(bonding.property_rows.contains(&PropertyRow::ForgetDevice));
+        assert!(bonding.offers_forget);
+        assert!(bonding.needs_attention);
+    }
+
+    fn attention_steps(presentation: &TimelinePresentation) -> Vec<PairingStep> {
+        presentation
+            .steps
+            .iter()
+            .filter(|step_presentation| step_presentation.needs_attention)
+            .map(|step_presentation| step_presentation.step)
+            .collect()
+    }
+
+    #[test]
+    fn unpaired_device_opens_only_pairing() {
+        let presentation = present(&gamepad_snapshot(), &ActivePairing::Idle);
+        assert_eq!(attention_steps(&presentation), vec![PairingStep::Pairing]);
+        assert!(!step_of(&presentation, PairingStep::Bonding).offers_forget);
+    }
+
+    #[test]
+    fn running_step_is_the_only_open_step() {
+        let mut snapshot = gamepad_snapshot();
+        snapshot.paired = true;
+        snapshot.bonded = true;
+        snapshot.trusted = true;
+        let presentation = present(&snapshot, &ActivePairing::Running(PairingStep::Connection));
+        assert_eq!(
+            attention_steps(&presentation),
+            vec![PairingStep::Connection]
+        );
+    }
+
+    #[test]
+    fn complete_non_input_device_opens_nothing() {
+        let mut snapshot = gamepad_snapshot();
+        snapshot.icon_name = "audio-headphones".to_string();
+        snapshot.paired = true;
+        snapshot.bonded = true;
+        snapshot.trusted = true;
+        snapshot.connected = true;
+        let presentation = present(&snapshot, &ActivePairing::Idle);
+        assert!(attention_steps(&presentation).is_empty());
+        assert!(step_of(&presentation, PairingStep::Bonding).offers_forget);
     }
 
     #[test]
