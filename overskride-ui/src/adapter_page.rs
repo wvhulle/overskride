@@ -11,13 +11,20 @@ use relm4::adw;
 use relm4::adw::prelude::*;
 use relm4::gtk;
 use relm4::prelude::*;
+use uom::fmt::DisplayStyle;
+use uom::si::f32::Time;
+use uom::si::time::{minute, second};
 
 use crate::widgets::page_templates::{ClampedPage, PageHeader};
 use crate::widgets::protocol_info::protocol_info_button;
 
-const SECONDS_PER_MINUTE: u64 = 60;
 const COUNTDOWN_TICK: Duration = Duration::from_secs(1);
-const OFFERED_VISIBILITY_MINUTES: [u32; 4] = [0, 3, 5, 15];
+const OFFERED_VISIBILITY_TIMEOUTS: [Duration; 4] = [
+    Duration::ZERO,
+    Duration::from_mins(3),
+    Duration::from_mins(5),
+    Duration::from_mins(15),
+];
 const VISIBILITY_PROTOCOL_TERM: &str = "Inquiry scan + Pairable";
 const VISIBILITY_PROTOCOL_DETAILS: &str = "Discoverable makes this radio answer the inquiry packets other devices send while they scan, so this computer appears in their lists under the name below. Pairable lets BlueZ accept the pairing requests they then send; the pairing agent of this app asks you to confirm the code. Turning visibility off keeps Pairable on, so bonded devices can still pair again. This is only needed when the other device starts the pairing; to pair a headset or controller, put it in pairing mode and use Scan instead.";
 
@@ -30,7 +37,7 @@ pub struct AdapterPage {
     session: BluetoothSession,
     adapter: AdapterSnapshot,
     alias_changed: bool,
-    visibility_minute_choices: Vec<u32>,
+    visibility_timeout_choices: Vec<Duration>,
     visibility_choices_changed: bool,
     visible_since: Option<Instant>,
 }
@@ -60,39 +67,35 @@ fn visible_for_pairing(adapter: &AdapterSnapshot) -> bool {
     adapter.discoverable && adapter.pairable
 }
 
-fn visibility_minute_choices(current_minutes: u32) -> Vec<u32> {
-    let mut minute_choices = OFFERED_VISIBILITY_MINUTES.to_vec();
-    if !minute_choices.contains(&current_minutes) {
-        minute_choices.push(current_minutes);
-        minute_choices.sort_unstable();
+fn visibility_timeout_choices(current_timeout: Duration) -> Vec<Duration> {
+    let mut timeout_choices = OFFERED_VISIBILITY_TIMEOUTS.to_vec();
+    if !timeout_choices.contains(&current_timeout) {
+        timeout_choices.push(current_timeout);
+        timeout_choices.sort_unstable();
     }
-    minute_choices
+    timeout_choices
 }
 
-fn visibility_choice_label(minutes: u32) -> String {
-    match minutes {
-        0 => "Until Turned Off".to_string(),
-        1 => "1 Minute".to_string(),
-        many_minutes => format!("{many_minutes} Minutes"),
+fn visibility_choice_label(visibility_timeout: Duration) -> String {
+    if visibility_timeout.is_zero() {
+        return "Until turned off".to_string();
     }
+    Time::new::<second>(visibility_timeout.as_secs_f32())
+        .into_format_args(minute, DisplayStyle::Description)
+        .to_string()
 }
 
-fn visibility_choice_list(minute_choices: &[u32]) -> gtk::StringList {
-    let choice_labels: Vec<String> = minute_choices
+fn visibility_choice_list(timeout_choices: &[Duration]) -> gtk::StringList {
+    let choice_labels: Vec<String> = timeout_choices
         .iter()
-        .map(|minutes| visibility_choice_label(*minutes))
+        .map(|visibility_timeout| visibility_choice_label(*visibility_timeout))
         .collect();
     let label_slices: Vec<&str> = choice_labels.iter().map(String::as_str).collect();
     gtk::StringList::new(&label_slices)
 }
 
-fn format_minutes_seconds(remaining: Duration) -> String {
-    let remaining_seconds = remaining.as_secs();
-    format!(
-        "{}:{:02}",
-        remaining_seconds / SECONDS_PER_MINUTE,
-        remaining_seconds % SECONDS_PER_MINUTE
-    )
+fn format_whole_seconds(remaining: Duration) -> String {
+    humantime::format_duration(Duration::from_secs(remaining.as_secs())).to_string()
 }
 
 fn describe_pairing_visibility(adapter: &AdapterSnapshot, remaining: Option<Duration>) -> String {
@@ -103,15 +106,17 @@ fn describe_pairing_visibility(adapter: &AdapterSnapshot, remaining: Option<Dura
         return "Visible, but pairing requests are rejected".to_string();
     }
     let alias = &adapter.alias;
-    match (adapter.discoverable_timeout_minutes, remaining) {
-        (0, _) => format!("Visible as “{alias}” until turned off"),
+    match (adapter.discoverable_timeout, remaining) {
+        (visibility_timeout, _) if visibility_timeout.is_zero() => {
+            format!("Visible as “{alias}” until turned off")
+        }
         (_, Some(remaining)) => format!(
             "Visible as “{alias}” for {} more",
-            format_minutes_seconds(remaining)
+            format_whole_seconds(remaining)
         ),
-        (timeout_minutes, None) => format!(
+        (visibility_timeout, None) => format!(
             "Visible as “{alias}”, hides within {}",
-            visibility_choice_label(timeout_minutes).to_lowercase()
+            visibility_choice_label(visibility_timeout).to_lowercase()
         ),
     }
 }
@@ -120,11 +125,10 @@ impl AdapterPage {
     fn show_adapter(&mut self, adapter: AdapterSnapshot, sender: &ComponentSender<Self>) {
         self.alias_changed = adapter.alias != self.adapter.alias;
         let became_discoverable = adapter.discoverable && !self.adapter.discoverable;
-        let timeout_changed =
-            adapter.discoverable_timeout_minutes != self.adapter.discoverable_timeout_minutes;
-        let minute_choices = visibility_minute_choices(adapter.discoverable_timeout_minutes);
-        self.visibility_choices_changed = minute_choices != self.visibility_minute_choices;
-        self.visibility_minute_choices = minute_choices;
+        let timeout_changed = adapter.discoverable_timeout != self.adapter.discoverable_timeout;
+        let minute_choices = visibility_timeout_choices(adapter.discoverable_timeout);
+        self.visibility_choices_changed = minute_choices != self.visibility_timeout_choices;
+        self.visibility_timeout_choices = minute_choices;
         self.adapter = adapter;
         if !self.adapter.discoverable {
             self.visible_since = None;
@@ -136,8 +140,7 @@ impl AdapterPage {
 
     fn start_visibility_countdown(&mut self, sender: &ComponentSender<Self>) {
         self.visible_since = Some(Instant::now());
-        let countdown_ticks =
-            u64::from(self.adapter.discoverable_timeout_minutes) * SECONDS_PER_MINUTE;
+        let countdown_ticks = self.adapter.discoverable_timeout.as_secs();
         sender.command(move |command_output, shutdown| {
             shutdown
                 .register(
@@ -153,18 +156,16 @@ impl AdapterPage {
     }
 
     fn remaining_visibility(&self) -> Option<Duration> {
-        let timeout_minutes = self.adapter.discoverable_timeout_minutes;
+        let visibility_timeout = self.adapter.discoverable_timeout;
         let visible_since = self.visible_since?;
-        (timeout_minutes > 0).then(|| {
-            Duration::from_secs(u64::from(timeout_minutes) * SECONDS_PER_MINUTE)
-                .saturating_sub(visible_since.elapsed())
-        })
+        (!visibility_timeout.is_zero())
+            .then(|| visibility_timeout.saturating_sub(visible_since.elapsed()))
     }
 
     fn selected_visibility_choice(&self) -> u32 {
-        self.visibility_minute_choices
+        self.visibility_timeout_choices
             .iter()
-            .position(|minutes| *minutes == self.adapter.discoverable_timeout_minutes)
+            .position(|minutes| *minutes == self.adapter.discoverable_timeout)
             .and_then(|choice_position| u32::try_from(choice_position).ok())
             .unwrap_or_default()
     }
@@ -235,7 +236,7 @@ impl Component for AdapterPage {
                         set_title: "Stay Visible",
                         #[track(model.visibility_choices_changed)]
                         #[block_signal(duration_handler)]
-                        set_model: Some(&visibility_choice_list(&model.visibility_minute_choices)),
+                        set_model: Some(&visibility_choice_list(&model.visibility_timeout_choices)),
                         #[watch]
                         #[block_signal(duration_handler)]
                         set_selected: model.selected_visibility_choice(),
@@ -343,8 +344,8 @@ impl Component for AdapterPage {
     ) -> ComponentParts<Self> {
         let model = Self {
             session: page_init.session.clone(),
-            visibility_minute_choices: visibility_minute_choices(
-                page_init.adapter.discoverable_timeout_minutes,
+            visibility_timeout_choices: visibility_timeout_choices(
+                page_init.adapter.discoverable_timeout,
             ),
             visibility_choices_changed: true,
             visible_since: None,
@@ -399,19 +400,19 @@ impl Component for AdapterPage {
                 });
             }
             AdapterPageInput::VisibilityDurationChosen(choice_position) => {
-                let Some(timeout_minutes) = self
-                    .visibility_minute_choices
+                let Some(chosen_timeout) = self
+                    .visibility_timeout_choices
                     .get(choice_position as usize)
                     .copied()
                 else {
                     return;
                 };
-                if timeout_minutes == self.adapter.discoverable_timeout_minutes {
+                if chosen_timeout == self.adapter.discoverable_timeout {
                     return;
                 }
                 sender.oneshot_command(async move {
                     AdapterPageCommand::ActionFinished(
-                        set_discoverable_timeout(&session, &adapter_name, timeout_minutes).await,
+                        set_discoverable_timeout(&session, &adapter_name, chosen_timeout).await,
                     )
                 });
             }
@@ -464,7 +465,7 @@ mod tests {
             discoverable: true,
             pairable: true,
             discovering: false,
-            discoverable_timeout_minutes: 3,
+            discoverable_timeout: Duration::from_mins(3),
         }
     }
 
@@ -491,7 +492,7 @@ mod tests {
     #[test]
     fn zero_timeout_stays_visible_until_turned_off() {
         let mut adapter = visible_adapter();
-        adapter.discoverable_timeout_minutes = 0;
+        adapter.discoverable_timeout = Duration::ZERO;
         assert_eq!(
             describe_pairing_visibility(&adapter, Some(Duration::from_secs(5))),
             "Visible as “Ryzen” until turned off"
@@ -502,7 +503,7 @@ mod tests {
     fn known_start_shows_countdown() {
         assert_eq!(
             describe_pairing_visibility(&visible_adapter(), Some(Duration::from_secs(125))),
-            "Visible as “Ryzen” for 2:05 more"
+            "Visible as “Ryzen” for 2m 5s more"
         );
     }
 
@@ -516,7 +517,19 @@ mod tests {
 
     #[test]
     fn unusual_timeout_becomes_extra_choice() {
-        assert_eq!(visibility_minute_choices(10), vec![0, 3, 5, 10, 15]);
-        assert_eq!(visibility_minute_choices(5), vec![0, 3, 5, 15]);
+        let minutes = |minute_values: &[u64]| -> Vec<Duration> {
+            minute_values
+                .iter()
+                .map(|minute_value| Duration::from_mins(*minute_value))
+                .collect()
+        };
+        assert_eq!(
+            visibility_timeout_choices(Duration::from_mins(10)),
+            minutes(&[0, 3, 5, 10, 15])
+        );
+        assert_eq!(
+            visibility_timeout_choices(Duration::from_mins(5)),
+            minutes(&[0, 3, 5, 15])
+        );
     }
 }

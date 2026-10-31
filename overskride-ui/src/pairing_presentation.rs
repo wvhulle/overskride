@@ -8,6 +8,8 @@ use overskride_bluetooth::pairing_steps::{
     first_missing_step, is_step_applicable, is_step_done, step_definition,
 };
 use overskride_bluetooth::radio_bonds::{RadioBond, RadioMembership};
+use uom::fmt::DisplayStyle;
+use uom::si::length::meter;
 
 use crate::device_status::{SignalQuality, input_device_missing};
 
@@ -690,9 +692,12 @@ fn in_range(snapshot: &DeviceSnapshot) -> bool {
 
 fn distance_row(distance_estimate: DistanceEstimate) -> PropertyRow {
     match distance_estimate {
-        DistanceEstimate::Meters(distance_meters) => hinted_property(
+        DistanceEstimate::Estimated(distance) => hinted_property(
             "Distance",
-            format!("≈ {distance_meters:.1} m"),
+            format!(
+                "≈ {:.1}",
+                distance.into_format_args(meter, DisplayStyle::Abbreviation)
+            ),
             "Rough estimate from signal strength",
         ),
         DistanceEstimate::Unknown => inline_property("Distance", "Unknown"),
@@ -896,6 +901,15 @@ mod tests {
         snapshot.trusted = true;
         snapshot.icon_name = "phone".to_string();
         snapshot
+    }
+
+    #[test]
+    fn distance_is_rendered_by_uom_in_meters() {
+        let distance = uom::si::f32::Length::new::<meter>(2.04);
+        assert_eq!(
+            distance_row(DistanceEstimate::Estimated(distance)),
+            hinted_property("Distance", "≈ 2.0 m", "Rough estimate from signal strength")
+        );
     }
 
     #[test]

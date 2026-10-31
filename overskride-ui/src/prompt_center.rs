@@ -14,7 +14,7 @@ use relm4::prelude::*;
 use crate::attention_notifications::{
     notify_about_prompt, window_needs_attention, withdraw_prompt_notification,
 };
-use crate::transfers_popover::{SenderAssessment, TransferDecision, megabytes};
+use crate::transfers_popover::{SenderAssessment, TransferDecision};
 use crate::widgets::alert_dialogs::{
     AlertChoice, CANCEL_CHOICE, answer_entry, build_alert, plain_choice, suggested_choice,
 };
@@ -243,9 +243,9 @@ fn draft_transfer_prompt(assessment: SenderAssessment) -> PromptDraft {
     PromptDraft {
         heading: "File Transfer Incoming",
         body: format!(
-            "Accept {} ({:.2} MB) from {sender_name}?",
+            "Accept {} ({}) from {sender_name}?",
             incoming_transfer.file_name,
-            megabytes(incoming_transfer.total_bytes),
+            incoming_transfer.total_size.display().si(),
         ),
         choices: if bonded {
             &BONDED_SENDER_CHOICES

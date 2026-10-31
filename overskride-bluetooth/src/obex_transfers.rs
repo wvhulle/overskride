@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use bytesize::ByteSize;
 use dbus::arg::{PropMap, RefArg, Variant};
 use dbus::channel::MatchingReceiver;
 use dbus::message::MatchRule;
@@ -49,8 +50,8 @@ pub enum TransferStatus {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransferProgress {
     pub status: TransferStatus,
-    pub transferred_bytes: u64,
-    pub total_bytes: u64,
+    pub transferred_size: ByteSize,
+    pub total_size: ByteSize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -64,7 +65,7 @@ pub struct TransferHandle {
     obex_connection: ObexConnection,
     transfer_path: dbus::Path<'static>,
     pub file_name: String,
-    pub total_bytes: u64,
+    pub total_size: ByteSize,
     received_file_handling: ReceivedFileHandling,
 }
 
@@ -72,7 +73,7 @@ pub struct TransferHandle {
 pub struct IncomingTransfer {
     pub sender_address: bluer::Address,
     pub file_name: String,
-    pub total_bytes: u64,
+    pub total_size: ByteSize,
     obex_connection: ObexConnection,
     transfer_path: dbus::Path<'static>,
     reply_channel: oneshot::Sender<()>,
@@ -98,8 +99,8 @@ fn property_text(properties: &PropMap, property_name: &str) -> Option<String> {
     Some(properties.get(property_name)?.0.as_str()?.to_string())
 }
 
-fn property_number(properties: &PropMap, property_name: &str) -> Option<u64> {
-    properties.get(property_name)?.0.as_u64()
+fn property_size(properties: &PropMap, property_name: &str) -> Option<ByteSize> {
+    properties.get(property_name)?.0.as_u64().map(ByteSize::b)
 }
 
 fn apply_transfer_properties(
@@ -111,9 +112,9 @@ fn apply_transfer_properties(
             .map_or(progress.status, |status_text| {
                 parse_transfer_status(&status_text)
             }),
-        transferred_bytes: property_number(changed_properties, "Transferred")
-            .unwrap_or(progress.transferred_bytes),
-        total_bytes: property_number(changed_properties, "Size").unwrap_or(progress.total_bytes),
+        transferred_size: property_size(changed_properties, "Transferred")
+            .unwrap_or(progress.transferred_size),
+        total_size: property_size(changed_properties, "Size").unwrap_or(progress.total_size),
     }
 }
 
@@ -289,7 +290,7 @@ impl ObexConnection {
             obex_connection: self.clone(),
             transfer_path,
             file_name: property_text(&transfer_properties, "Name").unwrap_or(fallback_name),
-            total_bytes: property_number(&transfer_properties, "Size").unwrap_or_default(),
+            total_size: property_size(&transfer_properties, "Size").unwrap_or_default(),
             received_file_handling: ReceivedFileHandling::LeaveWhereObexdPutIt,
         })
     }
@@ -399,7 +400,7 @@ impl PushForwarder {
         let incoming_transfer = IncomingTransfer {
             sender_address,
             file_name: file_name.clone(),
-            total_bytes: property_number(&transfer_properties, "Size").unwrap_or_default(),
+            total_size: property_size(&transfer_properties, "Size").unwrap_or_default(),
             obex_connection: self.obex_connection.clone(),
             transfer_path,
             reply_channel,
@@ -421,7 +422,7 @@ impl IncomingTransfer {
             obex_connection: self.obex_connection,
             transfer_path: self.transfer_path,
             file_name: self.file_name,
-            total_bytes: self.total_bytes,
+            total_size: self.total_size,
             received_file_handling: ReceivedFileHandling::MoveInto(destination_folder),
         }
     }
@@ -480,15 +481,15 @@ impl TransferHandle {
             Ok(transfer_properties) => apply_transfer_properties(
                 TransferProgress {
                     status: TransferStatus::Queued,
-                    transferred_bytes: 0,
-                    total_bytes: self.total_bytes,
+                    transferred_size: ByteSize::b(0),
+                    total_size: self.total_size,
                 },
                 &transfer_properties,
             ),
             Err(_transfer_already_gone) => TransferProgress {
                 status: TransferStatus::Complete,
-                transferred_bytes: self.total_bytes,
-                total_bytes: self.total_bytes,
+                transferred_size: self.total_size,
+                total_size: self.total_size,
             },
         };
         let signal_updates = property_signals
@@ -537,21 +538,21 @@ mod tests {
     fn transfer_properties_update_only_what_changed() {
         let started = TransferProgress {
             status: TransferStatus::Queued,
-            transferred_bytes: 0,
-            total_bytes: 2_000,
+            transferred_size: ByteSize::b(0),
+            total_size: ByteSize::kb(2),
         };
         let active = apply_transfer_properties(
             started,
             &property_map(vec![("Status", Box::new("active".to_string()))]),
         );
         assert_eq!(active.status, TransferStatus::Active);
-        assert_eq!(active.total_bytes, 2_000);
+        assert_eq!(active.total_size, ByteSize::kb(2));
         let halfway = apply_transfer_properties(
             active,
             &property_map(vec![("Transferred", Box::new(1_000_u64))]),
         );
         assert_eq!(halfway.status, TransferStatus::Active);
-        assert_eq!(halfway.transferred_bytes, 1_000);
+        assert_eq!(halfway.transferred_size, ByteSize::kb(1));
     }
 
     #[test]

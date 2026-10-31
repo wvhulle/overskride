@@ -10,12 +10,15 @@ path = "src/main.rs"
 
 [dependencies]
 ashpd = { version = "0.13", default-features = false, features = ["tokio", "background"] }
+bytesize = "2"
 futures = "0.3.31"
+humantime = "2.4.0"
 ksni = "0.3.7"
 overskride-bluetooth = { path = "../overskride-bluetooth" }
 relm4 = { version = "0.11", features = ["libadwaita", "gnome_47"] }
 relm4-icons = "0.11"
 tokio = { version = "1.48.0", features = ["time"] }
+uom = { version = "0.38", default-features = false, features = ["si", "std", "f32", "u32", "autoconvert"] }
 
 [build-dependencies]
 relm4-icons-build = "0.11"

@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
+use bytesize::ByteSize;
 use futures::StreamExt;
 use overskride_bluetooth::device_actions::read_device;
 use overskride_bluetooth::obex_transfers::{
@@ -18,7 +19,6 @@ use crate::app_preferences::AppPreferences;
 use crate::device_page::ObexAvailability;
 
 const FINISHED_TRANSFER_LINGER: Duration = Duration::from_secs(60);
-const BYTES_PER_MEGABYTE: f64 = 1_000_000.0;
 
 pub struct TransfersInit {
     pub session: BluetoothSession,
@@ -81,11 +81,6 @@ pub enum TransfersCommand {
     Incoming(IncomingTransfer),
     SenderAssessed(SenderAssessment),
     RemoveFinishedRow(DynamicIndex),
-}
-
-pub fn megabytes(byte_count: u64) -> f64 {
-    let whole_kilobytes = u32::try_from(byte_count / 1000).unwrap_or(u32::MAX);
-    f64::from(whole_kilobytes) * 1000.0 / BYTES_PER_MEGABYTE
 }
 
 impl TransfersPopover {
@@ -292,22 +287,22 @@ pub enum TransferRowCommand {
 }
 
 fn describe_status(progress: TransferProgress) -> String {
-    let transferred = megabytes(progress.transferred_bytes);
-    let total = megabytes(progress.total_bytes);
+    let transferred = progress.transferred_size.display().si();
+    let total = progress.total_size.display().si();
     match progress.status {
         TransferStatus::Queued => "Waiting".to_string(),
-        TransferStatus::Active => format!("{transferred:.2} of {total:.2} MB"),
-        TransferStatus::Suspended => format!("Paused at {transferred:.2} MB"),
-        TransferStatus::Complete => format!("Done, {total:.2} MB"),
+        TransferStatus::Active => format!("{transferred} of {total}"),
+        TransferStatus::Suspended => format!("Paused at {transferred}"),
+        TransferStatus::Complete => format!("Done, {total}"),
         TransferStatus::Failed => "Failed".to_string(),
     }
 }
 
 fn completed_fraction(progress: TransferProgress) -> f64 {
-    if progress.total_bytes == 0 {
+    if progress.total_size.as_u64() == 0 {
         return 0.0;
     }
-    (megabytes(progress.transferred_bytes) / megabytes(progress.total_bytes)).clamp(0.0, 1.0)
+    (progress.transferred_size.as_kb() / progress.total_size.as_kb()).clamp(0.0, 1.0)
 }
 
 #[relm4::factory(pub)]
@@ -368,8 +363,8 @@ impl FactoryComponent for TransferRow {
         Self {
             progress: TransferProgress {
                 status: TransferStatus::Queued,
-                transferred_bytes: 0,
-                total_bytes: transfer_handle.total_bytes,
+                transferred_size: ByteSize::b(0),
+                total_size: transfer_handle.total_size,
             },
             transfer_handle,
             row_index: row_index.clone(),

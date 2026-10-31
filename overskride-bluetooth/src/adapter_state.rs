@@ -1,11 +1,11 @@
+use std::time::Duration;
+
 use bluer::{AdapterEvent, AdapterProperty};
 use futures::{Stream, StreamExt};
 
 use crate::bluetooth_error::BluetoothError;
 use crate::radios::{RadioHardware, describe_radio};
 use crate::session::BluetoothSession;
-
-const SECONDS_PER_MINUTE: u32 = 60;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AdapterSnapshot {
@@ -19,7 +19,7 @@ pub struct AdapterSnapshot {
     pub discoverable: bool,
     pub pairable: bool,
     pub discovering: bool,
-    pub discoverable_timeout_minutes: u32,
+    pub discoverable_timeout: Duration,
 }
 
 impl AdapterSnapshot {
@@ -36,8 +36,9 @@ impl AdapterSnapshot {
             discoverable: adapter.is_discoverable().await?,
             pairable: adapter.is_pairable().await?,
             discovering: adapter.is_discovering().await?,
-            discoverable_timeout_minutes: adapter.discoverable_timeout().await?
-                / SECONDS_PER_MINUTE,
+            discoverable_timeout: Duration::from_secs(u64::from(
+                adapter.discoverable_timeout().await?,
+            )),
         })
     }
 
@@ -49,7 +50,7 @@ impl AdapterSnapshot {
             AdapterProperty::Discovering(discovering) => self.discovering = discovering,
             AdapterProperty::Alias(alias) => self.alias = alias,
             AdapterProperty::DiscoverableTimeout(timeout_seconds) => {
-                self.discoverable_timeout_minutes = timeout_seconds / SECONDS_PER_MINUTE;
+                self.discoverable_timeout = Duration::from_secs(u64::from(timeout_seconds));
             }
             _ => return false,
         }
@@ -116,12 +117,11 @@ pub async fn set_visible_for_pairing(
 pub async fn set_discoverable_timeout(
     session: &BluetoothSession,
     adapter_name: &str,
-    timeout_minutes: u32,
+    discoverable_timeout: Duration,
 ) -> Result<AdapterSnapshot, BluetoothError> {
     let adapter = session.adapter(adapter_name)?;
-    adapter
-        .set_discoverable_timeout(timeout_minutes * SECONDS_PER_MINUTE)
-        .await?;
+    let timeout_seconds = u32::try_from(discoverable_timeout.as_secs()).unwrap_or(u32::MAX);
+    adapter.set_discoverable_timeout(timeout_seconds).await?;
     AdapterSnapshot::read(&adapter).await
 }
 

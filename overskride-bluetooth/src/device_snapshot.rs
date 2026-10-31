@@ -2,6 +2,8 @@ use std::collections::{BTreeSet, HashMap};
 use std::str::FromStr;
 
 use bluer::DeviceProperty;
+use uom::si::f32::Length;
+use uom::si::length::meter;
 
 use crate::bluetooth_error::BluetoothError;
 use crate::device_capabilities::DeviceCapability;
@@ -50,7 +52,7 @@ pub enum Manufacturer {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum DistanceEstimate {
     Unknown,
-    Meters(f32),
+    Estimated(Length),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -283,7 +285,9 @@ impl DeviceSnapshot {
             TransmitPower::Unknown => FALLBACK_RSSI_AT_ONE_METER,
         };
         let path_loss = f32::from(rssi_at_one_meter) - f32::from(rssi);
-        DistanceEstimate::Meters(10f32.powf(path_loss / (10.0 * PATH_LOSS_EXPONENT)))
+        DistanceEstimate::Estimated(Length::new::<meter>(
+            10f32.powf(path_loss / (10.0 * PATH_LOSS_EXPONENT)),
+        ))
     }
 }
 
@@ -373,7 +377,10 @@ pub(crate) mod tests {
         let mut snapshot = sample_snapshot();
         assert_eq!(snapshot.distance_estimate(), DistanceEstimate::Unknown);
         snapshot.signal_strength = SignalStrength::Measured(FALLBACK_RSSI_AT_ONE_METER);
-        assert_eq!(snapshot.distance_estimate(), DistanceEstimate::Meters(1.0));
+        assert_eq!(
+            snapshot.distance_estimate(),
+            DistanceEstimate::Estimated(Length::new::<meter>(1.0))
+        );
     }
 
     #[test]
@@ -381,12 +388,15 @@ pub(crate) mod tests {
         let mut snapshot = sample_snapshot();
         snapshot.transmit_power = TransmitPower::Reported(12);
         snapshot.signal_strength = SignalStrength::Measured(12 - FREE_SPACE_LOSS_AT_ONE_METER);
-        assert_eq!(snapshot.distance_estimate(), DistanceEstimate::Meters(1.0));
+        assert_eq!(
+            snapshot.distance_estimate(),
+            DistanceEstimate::Estimated(Length::new::<meter>(1.0))
+        );
         snapshot.signal_strength = SignalStrength::Measured(-68);
-        let DistanceEstimate::Meters(distance_meters) = snapshot.distance_estimate() else {
+        let DistanceEstimate::Estimated(distance) = snapshot.distance_estimate() else {
             panic!("a measured signal gives a distance");
         };
-        assert!((15.0..30.0).contains(&distance_meters));
+        assert!((15.0..30.0).contains(&distance.get::<meter>()));
     }
 
     #[test]
