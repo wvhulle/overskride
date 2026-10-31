@@ -7,12 +7,14 @@ use bluer::DeviceProperty;
 use uom::si::{f32::Length, length::meter};
 
 use crate::{
-    bluetooth_error::BluetoothError,
-    device_capabilities::DeviceCapability,
-    device_guess::{DeviceAppearance, DeviceGuess, guess_device_kind},
-    kernel_input_devices::{KernelInputBinding, find_kernel_input_devices},
-    service_names::describe_service,
-    session::DeviceLocation,
+    bluez_dbus_session::DeviceLocation,
+    bluez_operation_error::BluetoothError,
+    remote_device::{
+        advertised_device_capabilities::DeviceCapability,
+        gatt_service_uuid_names::describe_service,
+        linux_kernel_input_devices::{KernelInputBinding, find_kernel_input_devices},
+        nameless_device_type_guess::{DeviceAppearance, DeviceGuess, guess_device_kind},
+    },
 };
 
 pub const UNKNOWN_DEVICE_NAME: &str = "Unknown Device";
@@ -405,13 +407,14 @@ pub(crate) mod tests {
     #[test]
     fn reported_battery_wins_over_kernel_battery() {
         let mut snapshot = sample_snapshot();
-        snapshot.kernel_input =
-            KernelInputBinding::Bound(crate::kernel_input_devices::KernelInputDevices {
+        snapshot.kernel_input = KernelInputBinding::Bound(
+            crate::remote_device::linux_kernel_input_devices::KernelInputDevices {
                 driver_name: "playstation".to_string(),
                 input_nodes: Vec::new(),
                 hidraw_nodes: Vec::new(),
                 battery: BatteryReading::Percentage(40),
-            });
+            },
+        );
         assert_eq!(snapshot.battery(), BatteryReading::Percentage(40));
         snapshot.reported_battery = BatteryReading::Percentage(80);
         assert_eq!(snapshot.battery(), BatteryReading::Percentage(80));

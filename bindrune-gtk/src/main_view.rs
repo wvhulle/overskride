@@ -4,17 +4,25 @@ use std::{
 };
 
 use bindrune_bluez::{
-    adapter_state::{AdapterSnapshot, read_adapter},
-    bluetooth_error::BluetoothError,
-    connection_drops::{ConnectionDrop, ConnectionHistory, connection_drops},
-    device_actions::{connect_device, disconnect_device, read_device},
-    device_changes::DeviceChange,
-    device_snapshot::DeviceSnapshot,
-    discovery::{DiscoverySession, start_discovery},
-    pairing_agent::{AgentPolicy, PairingRequest, pairing_requests},
-    pairing_failure::ConnectionStepFailure,
-    radios::RadioDescription,
-    session::{BluetoothSession, DeviceLocation},
+    bluetooth_adapter::{
+        adapter_state_snapshot::{AdapterSnapshot, read_adapter},
+        adapter_udev_hardware::RadioDescription,
+        device_discovery_session::{DiscoverySession, start_discovery},
+    },
+    bluez_dbus_session::{BluetoothSession, DeviceLocation},
+    bluez_operation_error::BluetoothError,
+    device_pairing::{
+        pairing_agent_requests::{AgentPolicy, PairingRequest, pairing_requests},
+        pairing_step_failure::ConnectionStepFailure,
+    },
+    link_quality::disconnect_reason_history::{
+        ConnectionDrop, ConnectionHistory, connection_drops,
+    },
+    remote_device::{
+        remote_device_change_stream::DeviceChange,
+        remote_device_commands::{connect_device, disconnect_device, read_device},
+        remote_device_snapshot::DeviceSnapshot,
+    },
 };
 use futures::StreamExt;
 use relm4::{adw, adw::prelude::*, factory::FactoryVecDeque, gtk, prelude::*};

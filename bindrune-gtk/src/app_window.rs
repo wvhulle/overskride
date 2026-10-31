@@ -1,9 +1,11 @@
 use bindrune_bluez::{
-    adapter_state::{AdapterSnapshot, read_adapter},
-    bluetooth_error::BluetoothError,
-    obex_transfers::ObexConnection,
-    radios::RadioDescription,
-    session::BluetoothSession,
+    bluetooth_adapter::{
+        adapter_state_snapshot::{AdapterSnapshot, read_adapter},
+        adapter_udev_hardware::RadioDescription,
+    },
+    bluez_dbus_session::BluetoothSession,
+    bluez_operation_error::BluetoothError,
+    obex_file_transfer::obex_file_transfers::ObexConnection,
 };
 use ksni::TrayMethods;
 use relm4::{

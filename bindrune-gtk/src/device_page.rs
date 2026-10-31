@@ -4,23 +4,29 @@ use std::{
 };
 
 use bindrune_bluez::{
-    audio_profiles::{
+    bluetooth_adapter::device_bond_per_adapter::{RadioBond, read_radio_bonds},
+    bluez_dbus_session::BluetoothSession,
+    bluez_operation_error::BluetoothError,
+    device_pairing::{
+        pairing_step_failure::{AuthorizationFailure, ConnectionStepFailure, PairingFailure},
+        pairing_step_progress::{PairingProgress, PairingStep},
+    },
+    link_quality::{
+        disconnect_reason_history::ConnectionHistory,
+        hidraw_report_timing::{ReportTimingSample, report_timing},
+    },
+    obex_file_transfer::obex_file_transfers::{ObexConnection, TransferHandle},
+    pulse_audio_profiles::{
         ActiveAudioProfile, AudioProfiles, read_audio_profiles, set_audio_profile, switch_audio_off,
     },
-    bluetooth_error::BluetoothError,
-    connection_drops::ConnectionHistory,
-    device_actions::{
-        connect_device, disconnect_device, forget_device, pair_trust_and_connect, rename_device,
-        set_connection_policy,
+    remote_device::{
+        linux_kernel_input_devices::KernelInputBinding,
+        remote_device_commands::{
+            connect_device, disconnect_device, forget_device, pair_trust_and_connect,
+            rename_device, set_connection_policy,
+        },
+        remote_device_snapshot::{DeviceSnapshot, Manufacturer},
     },
-    device_snapshot::{DeviceSnapshot, Manufacturer},
-    kernel_input_devices::KernelInputBinding,
-    obex_transfers::{ObexConnection, TransferHandle},
-    pairing_failure::{AuthorizationFailure, ConnectionStepFailure, PairingFailure},
-    pairing_steps::{PairingProgress, PairingStep},
-    radio_bonds::{RadioBond, read_radio_bonds},
-    report_timing::{ReportTimingSample, report_timing},
-    session::BluetoothSession,
 };
 use futures::StreamExt;
 use relm4::{

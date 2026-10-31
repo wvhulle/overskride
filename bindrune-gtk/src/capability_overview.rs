@@ -1,6 +1,8 @@
 use std::collections::BTreeSet;
 
-use bindrune_bluez::device_capabilities::{CapabilityCategory, DeviceCapability};
+use bindrune_bluez::remote_device::advertised_device_capabilities::{
+    CapabilityCategory, DeviceCapability,
+};
 use relm4::{
     RelmWidgetExt, adw,
     adw::prelude::*,

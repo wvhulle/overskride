@@ -1,4 +1,4 @@
-use bindrune_bluez::pairing_steps::ConnectionPolicy;
+use bindrune_bluez::device_pairing::pairing_step_progress::ConnectionPolicy;
 use relm4::{
     ComponentParts, ComponentSender, SimpleComponent, adw, adw::prelude::*, gtk, gtk::glib,
 };

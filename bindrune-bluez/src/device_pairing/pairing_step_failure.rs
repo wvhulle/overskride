@@ -1,6 +1,8 @@
 use std::fmt;
 
-use crate::{bluetooth_error::BluezFailure, pairing_steps::PairingStep};
+use crate::{
+    bluez_operation_error::BluezFailure, device_pairing::pairing_step_progress::PairingStep,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PairStepFailure {
@@ -171,7 +173,7 @@ impl std::error::Error for PairingFailure {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bluetooth_error::{BluezConnectionFailure, ConnectionReason, LinkTransport};
+    use crate::bluez_operation_error::{BluezConnectionFailure, ConnectionReason, LinkTransport};
 
     #[test]
     fn each_step_failure_reports_its_own_step() {

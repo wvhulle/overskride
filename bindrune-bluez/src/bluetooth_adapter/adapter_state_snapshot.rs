@@ -4,9 +4,9 @@ use bluer::{AdapterEvent, AdapterProperty};
 use futures::{Stream, StreamExt};
 
 use crate::{
-    bluetooth_error::BluetoothError,
-    radios::{RadioHardware, describe_radio},
-    session::BluetoothSession,
+    bluetooth_adapter::adapter_udev_hardware::{RadioHardware, describe_radio},
+    bluez_dbus_session::BluetoothSession,
+    bluez_operation_error::BluetoothError,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]

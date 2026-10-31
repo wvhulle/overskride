@@ -4,18 +4,25 @@ use std::{
 };
 
 use bindrune_bluez::{
-    connection_drops::ConnectionHistory,
-    device_snapshot::{
-        BatteryReading, DeviceClass, DeviceSnapshot, DistanceEstimate, SignalStrength,
+    bluetooth_adapter::device_bond_per_adapter::{RadioBond, RadioMembership},
+    device_pairing::{
+        pairing_step_failure::PairingFailure,
+        pairing_step_progress::{
+            ConnectionPolicy, PAIRING_STEP_DEFINITIONS, PairingStep, applicable_steps,
+            connection_policy, first_missing_step, is_step_applicable, is_step_done,
+            step_definition,
+        },
     },
-    kernel_input_devices::{KernelInputBinding, KernelInputDevices},
-    pairing_failure::PairingFailure,
-    pairing_steps::{
-        ConnectionPolicy, PAIRING_STEP_DEFINITIONS, PairingStep, applicable_steps,
-        connection_policy, first_missing_step, is_step_applicable, is_step_done, step_definition,
+    link_quality::{
+        disconnect_reason_history::ConnectionHistory,
+        hidraw_report_timing::{NOTICEABLE_GAP, ReportTiming, ReportTimingSample},
     },
-    radio_bonds::{RadioBond, RadioMembership},
-    report_timing::{NOTICEABLE_GAP, ReportTiming, ReportTimingSample},
+    remote_device::{
+        linux_kernel_input_devices::{KernelInputBinding, KernelInputDevices},
+        remote_device_snapshot::{
+            BatteryReading, DeviceClass, DeviceSnapshot, DistanceEstimate, SignalStrength,
+        },
+    },
 };
 use uom::{
     fmt::DisplayStyle,
@@ -955,10 +962,12 @@ mod tests {
     use std::collections::{BTreeSet, HashMap};
 
     use bindrune_bluez::{
-        device_guess::DeviceAppearance,
-        device_snapshot::{Manufacturer, TransmitPower},
-        pairing_failure::BondingFailure,
-        session::DeviceLocation,
+        bluez_dbus_session::DeviceLocation,
+        device_pairing::pairing_step_failure::BondingFailure,
+        remote_device::{
+            nameless_device_type_guess::DeviceAppearance,
+            remote_device_snapshot::{Manufacturer, TransmitPower},
+        },
     };
 
     use super::*;
@@ -1038,7 +1047,9 @@ mod tests {
 
     #[test]
     fn repeated_signal_losses_mark_the_link_unstable() {
-        use bindrune_bluez::connection_drops::{ConnectionDrop, DisconnectReason};
+        use bindrune_bluez::link_quality::disconnect_reason_history::{
+            ConnectionDrop, DisconnectReason,
+        };
         let measured_at = Instant::now();
         let mut connection_history = ConnectionHistory::default();
         [Duration::from_secs(600), Duration::from_secs(60)]
@@ -1073,7 +1084,7 @@ mod tests {
 
     #[test]
     fn long_gaps_are_shown_and_mark_the_link_unstable() {
-        use bindrune_bluez::report_timing::ReportTiming;
+        use bindrune_bluez::link_quality::hidraw_report_timing::ReportTiming;
         use uom::si::f32::Frequency;
         let report_timing = ReportTiming {
             report_rate: Frequency::new::<hertz>(248.0),

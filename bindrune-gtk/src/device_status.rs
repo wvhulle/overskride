@@ -1,7 +1,11 @@
 use bindrune_bluez::{
-    device_snapshot::{DeviceSnapshot, SignalStrength},
-    kernel_input_devices::KernelInputBinding,
-    pairing_steps::{PAIRING_STEP_DEFINITIONS, is_step_applicable, is_step_done},
+    device_pairing::pairing_step_progress::{
+        PAIRING_STEP_DEFINITIONS, is_step_applicable, is_step_done,
+    },
+    remote_device::{
+        linux_kernel_input_devices::KernelInputBinding,
+        remote_device_snapshot::{DeviceSnapshot, SignalStrength},
+    },
 };
 
 use crate::icon_names;

@@ -8,7 +8,7 @@ use pulseaudio::{
     proplist::{Proplist, properties},
 };
 
-use crate::bluetooth_error::{AudioServerFailure, BluetoothError};
+use crate::bluez_operation_error::{AudioServerFailure, BluetoothError};
 
 const OFF_PROFILE_NAME: &str = "off";
 const APPLICATION_NAME: &str = "Overskride";

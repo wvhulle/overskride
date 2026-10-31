@@ -1,4 +1,4 @@
-use bindrune_bluez::radios::RadioDescription;
+use bindrune_bluez::bluetooth_adapter::adapter_udev_hardware::RadioDescription;
 use relm4::{
     adw,
     adw::prelude::*,

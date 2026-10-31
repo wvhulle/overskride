@@ -1,9 +1,11 @@
 use std::{collections::HashSet, time::Duration};
 
 use bindrune_bluez::{
-    device_actions::read_device,
-    obex_transfers::{IncomingTransfer, TransferHandle, TransferProgress, TransferStatus},
-    session::{BluetoothSession, DeviceLocation},
+    bluez_dbus_session::{BluetoothSession, DeviceLocation},
+    obex_file_transfer::obex_file_transfers::{
+        IncomingTransfer, TransferHandle, TransferProgress, TransferStatus,
+    },
+    remote_device::remote_device_commands::read_device,
 };
 use bytesize::ByteSize;
 use futures::StreamExt;

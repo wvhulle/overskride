@@ -7,9 +7,9 @@ use futures::{
 };
 
 use crate::{
-    bluetooth_error::BluetoothError,
-    device_snapshot::{DeviceSnapshot, PropertyRelevance},
-    session::{BluetoothSession, DeviceLocation},
+    bluez_dbus_session::{BluetoothSession, DeviceLocation},
+    bluez_operation_error::BluetoothError,
+    remote_device::remote_device_snapshot::{DeviceSnapshot, PropertyRelevance},
 };
 
 const KERNEL_INPUT_SETTLE_DELAY: Duration = Duration::from_secs(1);

@@ -1,11 +1,13 @@
 use std::cmp::Ordering;
 
 use bindrune_bluez::{
-    bluetooth_error::BluetoothError,
-    device_changes::{DeviceChange, device_changes},
-    device_ordering::compare_devices,
-    device_snapshot::DeviceSnapshot,
-    session::BluetoothSession,
+    bluez_dbus_session::BluetoothSession,
+    bluez_operation_error::BluetoothError,
+    remote_device::{
+        remote_device_change_stream::{DeviceChange, device_changes},
+        remote_device_snapshot::DeviceSnapshot,
+        sidebar_device_sort_order::compare_devices,
+    },
 };
 use futures::StreamExt;
 use relm4::{

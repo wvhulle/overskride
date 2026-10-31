@@ -18,7 +18,7 @@ use dbus_crossroads::{Crossroads, MethodErr};
 use futures::{Stream, StreamExt, future, stream};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::bluetooth_error::BluetoothError;
+use crate::bluez_operation_error::BluetoothError;
 
 const OBEX_SERVICE: &str = "org.bluez.obex";
 const OBEX_MANAGER_PATH: &str = "/org/bluez/obex";

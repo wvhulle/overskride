@@ -1,12 +1,12 @@
 use std::time::{Duration, Instant};
 
 use bindrune_bluez::{
-    adapter_state::{
+    bluetooth_adapter::adapter_state_snapshot::{
         AdapterSnapshot, adapter_changes, set_alias, set_discoverable_timeout, set_powered,
         set_visible_for_pairing,
     },
-    bluetooth_error::BluetoothError,
-    session::BluetoothSession,
+    bluez_dbus_session::BluetoothSession,
+    bluez_operation_error::BluetoothError,
 };
 use futures::StreamExt;
 use relm4::{adw, adw::prelude::*, gtk, prelude::*};
@@ -491,7 +491,7 @@ impl Component for AdapterPage {
 
 #[cfg(test)]
 mod tests {
-    use bindrune_bluez::radios::RadioHardware;
+    use bindrune_bluez::bluetooth_adapter::adapter_udev_hardware::RadioHardware;
 
     use super::*;
 

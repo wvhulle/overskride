@@ -5,8 +5,8 @@ use futures::{FutureExt, Stream};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    bluetooth_error::BluetoothError,
-    session::{BluetoothSession, DeviceLocation},
+    bluez_dbus_session::{BluetoothSession, DeviceLocation},
+    bluez_operation_error::BluetoothError,
 };
 
 pub const SERVICE_AUTHORIZATION_TIMEOUT: Duration = Duration::from_secs(25);

@@ -1,7 +1,9 @@
 use crate::{
-    device_snapshot::{DeviceSnapshot, SignalStrength},
-    kernel_input_devices::KernelInputBinding,
-    pairing_failure::PairingFailure,
+    device_pairing::pairing_step_failure::PairingFailure,
+    remote_device::{
+        linux_kernel_input_devices::KernelInputBinding,
+        remote_device_snapshot::{DeviceSnapshot, SignalStrength},
+    },
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -155,7 +157,7 @@ pub fn step_definition(step: PairingStep) -> &'static PairingStepDefinition {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::device_snapshot::tests::sample_snapshot;
+    use crate::remote_device::remote_device_snapshot::tests::sample_snapshot;
 
     #[test]
     fn unpaired_device_misses_pairing_first() {

@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 
 use bindrune_bluez::{
-    obex_transfers::IncomingTransfer,
-    pairing_agent::{
+    device_pairing::pairing_agent_requests::{
         ApprovalRequest, PairingRequest, PasskeyRequest, PinCodeRequest,
         SERVICE_AUTHORIZATION_TIMEOUT, ServiceAuthorizationAnswer, ServiceAuthorizationRequest,
     },
-    service_names::describe_service,
+    obex_file_transfer::obex_file_transfers::IncomingTransfer,
+    remote_device::gatt_service_uuid_names::describe_service,
 };
 use relm4::{adw, adw::prelude::*, gtk, prelude::*};
 

@@ -7,7 +7,7 @@ use std::{
 use dbus::message::MatchRule;
 use futures::{Stream, StreamExt, future};
 
-use crate::bluetooth_error::BluetoothError;
+use crate::bluez_operation_error::BluetoothError;
 
 const DEVICE_INTERFACE: &str = "org.bluez.Device1";
 const DISCONNECTED_SIGNAL: &str = "Disconnected";

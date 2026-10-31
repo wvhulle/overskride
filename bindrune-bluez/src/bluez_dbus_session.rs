@@ -1,6 +1,6 @@
 use crate::{
-    bluetooth_error::{BluetoothError, BluezFailure},
-    radios::{RadioDescription, describe_radio},
+    bluetooth_adapter::adapter_udev_hardware::{RadioDescription, describe_radio},
+    bluez_operation_error::{BluetoothError, BluezFailure},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]

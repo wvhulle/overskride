@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use crate::device_snapshot::BatteryReading;
+use crate::remote_device::remote_device_snapshot::BatteryReading;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KernelInputNode {

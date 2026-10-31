@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use crate::device_snapshot::{DeviceSnapshot, SignalStrength};
+use crate::remote_device::remote_device_snapshot::{DeviceSnapshot, SignalStrength};
 
 fn signal_rank(signal_strength: SignalStrength) -> i32 {
     match signal_strength {
@@ -34,7 +34,7 @@ pub fn compare_devices(first_device: &DeviceSnapshot, second_device: &DeviceSnap
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::device_snapshot::tests::sample_snapshot;
+    use crate::remote_device::remote_device_snapshot::tests::sample_snapshot;
 
     fn named_snapshot(alias: &str, last_address_byte: u8) -> DeviceSnapshot {
         let mut snapshot = sample_snapshot();
