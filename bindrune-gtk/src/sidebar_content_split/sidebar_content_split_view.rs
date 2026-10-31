@@ -38,8 +38,9 @@ use crate::{
         gsettings_stored_preferences::{AppPreferences, PreferenceChange},
         system_tray_menu::{TrayContent, TrayDevice, TrayRequest},
     },
-    device_detail::device_detail_page::{
-        DevicePage, DevicePageInit, DevicePageInput, DevicePageOutput, ObexAvailability,
+    device_detail::{
+        device_detail_page::{DevicePage, DevicePageInit, DevicePageInput, DevicePageOutput},
+        file_transfer_group::ObexAvailability,
     },
     header_transfer_popover::file_transfer_popover::{
         TransfersInit, TransfersInput, TransfersOutput, TransfersPopover,

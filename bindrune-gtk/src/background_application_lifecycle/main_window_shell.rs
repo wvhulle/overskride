@@ -24,7 +24,7 @@ use crate::{
         login_autostart_entry::{LoginAutostartError, apply_login_autostart, managed_by_systemd},
         system_tray_menu::{OverskrideTray, TrayContent, TrayRequest, TrayScope},
     },
-    device_detail::device_detail_page::ObexAvailability,
+    device_detail::file_transfer_group::ObexAvailability,
     icon_names,
     sidebar_content_split::sidebar_content_split_view::{
         MainView, MainViewInit, MainViewInput, MainViewOutput,

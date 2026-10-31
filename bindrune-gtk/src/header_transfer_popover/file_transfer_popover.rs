@@ -17,7 +17,7 @@ use relm4::{
 
 use crate::{
     background_application_lifecycle::gsettings_stored_preferences::AppPreferences,
-    device_detail::device_detail_page::ObexAvailability,
+    device_detail::file_transfer_group::ObexAvailability,
     header_transfer_popover::file_transfer_progress_row::TransferRow,
 };
 
