@@ -4,7 +4,7 @@ use bindrune_bluez::{
     bluetooth_adapter::adapter_snapshot_and_discovery::{
         AdapterSnapshot, set_discoverable_timeout, set_visible_for_pairing,
     },
-    bluez_dbus_session::BluetoothSession,
+    bluez_dbus_session::BluezDbusSession,
     bluez_operation_error::BluetoothError,
 };
 use futures::StreamExt;
@@ -36,12 +36,12 @@ const VISIBILITY_PROTOCOL_DETAILS: &str =
      it in pairing mode and use Scan instead.";
 
 pub struct PairingVisibilityGroupInit {
-    pub session: BluetoothSession,
+    pub session: BluezDbusSession,
     pub adapter: AdapterSnapshot,
 }
 
 pub struct PairingVisibilityGroup {
-    session: BluetoothSession,
+    session: BluezDbusSession,
     adapter: AdapterSnapshot,
     visibility_timeout_choices: Vec<Duration>,
     visibility_choices_changed: bool,

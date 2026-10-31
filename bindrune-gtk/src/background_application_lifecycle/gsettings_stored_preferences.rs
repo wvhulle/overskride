@@ -20,7 +20,7 @@ pub enum PreferenceChange {
 }
 
 #[derive(Clone, Debug)]
-pub struct AppPreferences {
+pub struct GsettingsStoredPreferences {
     settings: gio::Settings,
 }
 
@@ -56,7 +56,7 @@ fn read_preference_change(settings: &gio::Settings, setting_key: &str) -> Prefer
     }
 }
 
-impl AppPreferences {
+impl GsettingsStoredPreferences {
     pub fn load() -> Self {
         Self {
             settings: installed_settings().unwrap_or_else(bundled_settings),

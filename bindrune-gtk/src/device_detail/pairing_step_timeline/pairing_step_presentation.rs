@@ -1,5 +1,5 @@
 use bindrune_bluez::{
-    bluetooth_adapter::device_bond_per_adapter::{RadioBond, RadioMembership},
+    bluetooth_adapter::device_bond_per_adapter::{DeviceBondPerAdapter, RadioMembership},
     device_pairing::pairing_step_progress::{
         ConnectionPolicy, PAIRING_STEP_DEFINITIONS, PairingStep, applicable_steps,
         connection_policy, first_missing_step, is_step_applicable, is_step_done, step_definition,
@@ -29,7 +29,7 @@ impl TimelineInputs<'_> {
         matches!(self.active_pairing, ActivePairing::Running(_))
     }
 
-    fn shown_radio(&self) -> Option<&RadioBond> {
+    fn shown_radio(&self) -> Option<&DeviceBondPerAdapter> {
         self.radio_bonds.iter().find(|radio_bond| radio_bond.shown)
     }
 
@@ -337,7 +337,7 @@ impl TimelineInputs<'_> {
     }
 
     fn present_radios(&self) -> RadioSectionPresentation {
-        let connected_elsewhere = |radio_bond: &RadioBond| {
+        let connected_elsewhere = |radio_bond: &DeviceBondPerAdapter| {
             self.radio_bonds.iter().any(|other_bond| {
                 matches!(other_bond.membership, RadioMembership::Known(other_state) if other_state.connected)
                     && other_bond.radio.adapter_name != radio_bond.radio.adapter_name

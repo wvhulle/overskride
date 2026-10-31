@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use bindrune_bluez::{
-    bluez_dbus_session::BluetoothSession, bluez_operation_error::BluetoothError,
+    bluez_dbus_session::BluezDbusSession, bluez_operation_error::BluetoothError,
     link_quality::disconnect_reason_history::ConnectionHistory,
     obex_file_transfer::obex_transfer_progress::TransferHandle,
     remote_device::remote_device_snapshot::DeviceSnapshot,
@@ -12,7 +12,7 @@ use crate::{
     device_detail::{
         audio_profile_selector_group::{AudioProfileSelectorGroup, AudioProfileSelectorGroupInput},
         device_capability_overview::{
-            CapabilityOverview, CapabilityOverviewInput, CapabilitySources,
+            CapabilitySources, DeviceCapabilityOverview, DeviceCapabilityOverviewInput,
         },
         device_identity_group::{DeviceIdentityGroup, DeviceIdentityGroupInput},
         device_name_group::{DeviceNameGroup, DeviceNameGroupInit, DeviceNameGroupInput},
@@ -21,15 +21,16 @@ use crate::{
             FileTransferGroupOutput, ObexAvailability,
         },
         pairing_step_timeline::pairing_timeline_widgets::{
-            PairingTimeline, PairingTimelineInit, PairingTimelineInput, PairingTimelineOutput,
+            PairingStepTimeline, PairingStepTimelineInit, PairingStepTimelineInput,
+            PairingStepTimelineOutput,
         },
     },
     shared_device_appearance::device_icon_name,
     shared_page_widget_templates::ClampedPage,
 };
 
-pub struct DevicePageInit {
-    pub session: BluetoothSession,
+pub struct DeviceDetailPageInit {
+    pub session: BluezDbusSession,
     pub obex: ObexAvailability,
     pub adapter_address: bindrune_bluez::Address,
     pub accepts_files: bool,
@@ -38,28 +39,28 @@ pub struct DevicePageInit {
     pub connection_history: ConnectionHistory,
 }
 
-pub struct DevicePage {
+pub struct DeviceDetailPage {
     snapshot: DeviceSnapshot,
     name_group: Controller<DeviceNameGroup>,
-    timeline: Controller<PairingTimeline>,
+    timeline: Controller<PairingStepTimeline>,
     audio_group: Controller<AudioProfileSelectorGroup>,
     file_transfer_group: Controller<FileTransferGroup>,
-    capability_overview: Controller<CapabilityOverview>,
+    capability_overview: Controller<DeviceCapabilityOverview>,
     identity_group: Controller<DeviceIdentityGroup>,
 }
 
 #[derive(Debug)]
-pub enum DevicePageInput {
+pub enum DeviceDetailPageInput {
     DeviceChanged(DeviceSnapshot),
     ConnectionHistoryChanged(ConnectionHistory),
     AutoAcceptChanged(bool),
     GroupFailed(BluetoothError),
-    TimelineReported(PairingTimelineOutput),
+    TimelineReported(PairingStepTimelineOutput),
     FileTransferReported(FileTransferGroupOutput),
 }
 
 #[derive(Debug)]
-pub enum DevicePageOutput {
+pub enum DeviceDetailPageOutput {
     Failed(BluetoothError),
     Forgotten {
         hint: String,
@@ -81,7 +82,7 @@ fn capability_sources(snapshot: &DeviceSnapshot) -> CapabilitySources {
     }
 }
 
-impl DevicePage {
+impl DeviceDetailPage {
     pub fn shown_address(&self) -> bindrune_bluez::Address {
         self.snapshot.address()
     }
@@ -89,8 +90,9 @@ impl DevicePage {
     fn forward_device_change(&self) {
         self.name_group
             .emit(DeviceNameGroupInput::DeviceChanged(self.snapshot.clone()));
-        self.timeline
-            .emit(PairingTimelineInput::DeviceChanged(self.snapshot.clone()));
+        self.timeline.emit(PairingStepTimelineInput::DeviceChanged(
+            self.snapshot.clone(),
+        ));
         self.audio_group
             .emit(AudioProfileSelectorGroupInput::DeviceChanged(
                 self.snapshot.clone(),
@@ -98,9 +100,9 @@ impl DevicePage {
         self.file_transfer_group
             .emit(FileTransferGroupInput::DeviceChanged(self.snapshot.clone()));
         self.capability_overview
-            .emit(CapabilityOverviewInput::SourcesChanged(capability_sources(
-                &self.snapshot,
-            )));
+            .emit(DeviceCapabilityOverviewInput::SourcesChanged(
+                capability_sources(&self.snapshot),
+            ));
         self.identity_group
             .emit(DeviceIdentityGroupInput::DeviceChanged(
                 self.snapshot.clone(),
@@ -108,44 +110,48 @@ impl DevicePage {
     }
 }
 
-fn page_output_from_timeline(timeline_output: PairingTimelineOutput) -> DevicePageOutput {
+fn page_output_from_timeline(timeline_output: PairingStepTimelineOutput) -> DeviceDetailPageOutput {
     match timeline_output {
-        PairingTimelineOutput::Failed(timeline_failure) => {
-            DevicePageOutput::Failed(timeline_failure)
+        PairingStepTimelineOutput::Failed(timeline_failure) => {
+            DeviceDetailPageOutput::Failed(timeline_failure)
         }
-        PairingTimelineOutput::Forgotten { hint, rescan } => {
-            DevicePageOutput::Forgotten { hint, rescan }
+        PairingStepTimelineOutput::Forgotten { hint, rescan } => {
+            DeviceDetailPageOutput::Forgotten { hint, rescan }
         }
-        PairingTimelineOutput::ShowRadio(adapter_name) => DevicePageOutput::ShowRadio(adapter_name),
-        PairingTimelineOutput::PairViaRadio(adapter_name) => {
-            DevicePageOutput::PairViaRadio(adapter_name)
+        PairingStepTimelineOutput::ShowRadio(adapter_name) => {
+            DeviceDetailPageOutput::ShowRadio(adapter_name)
+        }
+        PairingStepTimelineOutput::PairViaRadio(adapter_name) => {
+            DeviceDetailPageOutput::PairViaRadio(adapter_name)
         }
     }
 }
 
 fn page_output_from_file_transfer(
     file_transfer_output: FileTransferGroupOutput,
-) -> DevicePageOutput {
+) -> DeviceDetailPageOutput {
     match file_transfer_output {
-        FileTransferGroupOutput::Failed(sending_error) => DevicePageOutput::Failed(sending_error),
+        FileTransferGroupOutput::Failed(sending_error) => {
+            DeviceDetailPageOutput::Failed(sending_error)
+        }
         FileTransferGroupOutput::AutoAcceptChosen {
             address,
             accepts_files,
-        } => DevicePageOutput::AutoAcceptChosen {
+        } => DeviceDetailPageOutput::AutoAcceptChosen {
             address,
             accepts_files,
         },
         FileTransferGroupOutput::TransfersStarted(transfer_handles) => {
-            DevicePageOutput::TransfersStarted(transfer_handles)
+            DeviceDetailPageOutput::TransfersStarted(transfer_handles)
         }
     }
 }
 
 #[relm4::component(pub)]
-impl SimpleComponent for DevicePage {
-    type Init = DevicePageInit;
-    type Input = DevicePageInput;
-    type Output = DevicePageOutput;
+impl SimpleComponent for DeviceDetailPage {
+    type Init = DeviceDetailPageInit;
+    type Input = DeviceDetailPageInput;
+    type Output = DeviceDetailPageOutput;
 
     view! {
         #[template]
@@ -183,17 +189,20 @@ impl SimpleComponent for DevicePage {
                 session: page_init.session.clone(),
                 snapshot: page_init.snapshot.clone(),
             })
-            .forward(sender.input_sender(), DevicePageInput::GroupFailed);
-        let timeline = PairingTimeline::builder()
-            .launch(PairingTimelineInit {
+            .forward(sender.input_sender(), DeviceDetailPageInput::GroupFailed);
+        let timeline = PairingStepTimeline::builder()
+            .launch(PairingStepTimelineInit {
                 session: page_init.session,
                 snapshot: page_init.snapshot.clone(),
                 connection_history: page_init.connection_history,
             })
-            .forward(sender.input_sender(), DevicePageInput::TimelineReported);
+            .forward(
+                sender.input_sender(),
+                DeviceDetailPageInput::TimelineReported,
+            );
         let audio_group = AudioProfileSelectorGroup::builder()
             .launch(page_init.snapshot.clone())
-            .forward(sender.input_sender(), DevicePageInput::GroupFailed);
+            .forward(sender.input_sender(), DeviceDetailPageInput::GroupFailed);
         let file_transfer_group = FileTransferGroup::builder()
             .launch(FileTransferGroupInit {
                 obex: page_init.obex,
@@ -202,8 +211,11 @@ impl SimpleComponent for DevicePage {
                 received_files_folder: page_init.received_files_folder,
                 snapshot: page_init.snapshot.clone(),
             })
-            .forward(sender.input_sender(), DevicePageInput::FileTransferReported);
-        let capability_overview = CapabilityOverview::builder()
+            .forward(
+                sender.input_sender(),
+                DeviceDetailPageInput::FileTransferReported,
+            );
+        let capability_overview = DeviceCapabilityOverview::builder()
             .launch(capability_sources(&page_init.snapshot))
             .detach();
         let identity_group = DeviceIdentityGroup::builder()
@@ -225,28 +237,30 @@ impl SimpleComponent for DevicePage {
 
     fn update(&mut self, input: Self::Input, sender: ComponentSender<Self>) {
         let page_output = match input {
-            DevicePageInput::DeviceChanged(snapshot) => {
+            DeviceDetailPageInput::DeviceChanged(snapshot) => {
                 self.snapshot = snapshot;
                 self.forward_device_change();
                 return;
             }
-            DevicePageInput::ConnectionHistoryChanged(connection_history) => {
+            DeviceDetailPageInput::ConnectionHistoryChanged(connection_history) => {
                 self.timeline
-                    .emit(PairingTimelineInput::ConnectionHistoryChanged(
+                    .emit(PairingStepTimelineInput::ConnectionHistoryChanged(
                         connection_history,
                     ));
                 return;
             }
-            DevicePageInput::AutoAcceptChanged(accepts_files) => {
+            DeviceDetailPageInput::AutoAcceptChanged(accepts_files) => {
                 self.file_transfer_group
                     .emit(FileTransferGroupInput::AutoAcceptChanged(accepts_files));
                 return;
             }
-            DevicePageInput::GroupFailed(group_failure) => DevicePageOutput::Failed(group_failure),
-            DevicePageInput::TimelineReported(timeline_output) => {
+            DeviceDetailPageInput::GroupFailed(group_failure) => {
+                DeviceDetailPageOutput::Failed(group_failure)
+            }
+            DeviceDetailPageInput::TimelineReported(timeline_output) => {
                 page_output_from_timeline(timeline_output)
             }
-            DevicePageInput::FileTransferReported(file_transfer_output) => {
+            DeviceDetailPageInput::FileTransferReported(file_transfer_output) => {
                 page_output_from_file_transfer(file_transfer_output)
             }
         };

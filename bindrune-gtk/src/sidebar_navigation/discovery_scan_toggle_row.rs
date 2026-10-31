@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bindrune_bluez::{
     bluetooth_adapter::adapter_snapshot_and_discovery::{DiscoverySession, start_discovery},
-    bluez_dbus_session::BluetoothSession,
+    bluez_dbus_session::BluezDbusSession,
     bluez_operation_error::BluetoothError,
 };
 use futures::StreamExt;
@@ -21,12 +21,12 @@ enum ScanState {
 }
 
 pub struct DiscoveryScanToggleRowInit {
-    pub session: BluetoothSession,
+    pub session: BluezDbusSession,
     pub adapter_name: String,
 }
 
 pub struct DiscoveryScanToggleRow {
-    session: BluetoothSession,
+    session: BluezDbusSession,
     adapter_name: String,
     scan_state: ScanState,
     scan_generation: u64,

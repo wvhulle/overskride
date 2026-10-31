@@ -1,9 +1,9 @@
 use bindrune_bluez::{
     bluetooth_adapter::{
         adapter_snapshot_and_discovery::{AdapterSnapshot, read_adapter},
-        adapter_udev_hardware::RadioDescription,
+        adapter_udev_hardware::AdapterHardwareDescription,
     },
-    bluez_dbus_session::BluetoothSession,
+    bluez_dbus_session::BluezDbusSession,
     bluez_operation_error::BluetoothError,
     obex_file_transfer::obex_dbus_connection::ObexConnection,
 };
@@ -20,14 +20,15 @@ use relm4::{
 use crate::{
     background_application_lifecycle::{
         application_menu_actions::{AppActionGroup, QuitAction, ShowWindowAction},
-        gsettings_stored_preferences::{AppPreferences, PreferenceChange},
+        gsettings_stored_preferences::{GsettingsStoredPreferences, PreferenceChange},
         login_autostart_entry::{LoginAutostartError, apply_login_autostart, managed_by_systemd},
-        system_tray_menu::{OverskrideTray, TrayContent, TrayRequest, TrayScope},
+        system_tray_menu::{SystemTrayMenu, TrayContent, TrayRequest, TrayScope},
     },
     device_detail::file_transfer_group::ObexAvailability,
     icon_names,
     sidebar_content_split::sidebar_content_split_view::{
-        MainView, MainViewInit, MainViewInput, MainViewOutput,
+        SidebarContentSplitView, SidebarContentSplitViewInit, SidebarContentSplitViewInput,
+        SidebarContentSplitViewOutput,
     },
 };
 
@@ -38,13 +39,15 @@ const BLUETOOTH_SERVICE_HELP: &str = "Start the Bluetooth service and open Overs
                                       distribution first.";
 
 struct ReadyBluetooth {
-    session: BluetoothSession,
-    radios: Vec<RadioDescription>,
+    session: BluezDbusSession,
+    radios: Vec<AdapterHardwareDescription>,
     adapter: AdapterSnapshot,
 }
 
 pub enum WindowContent {
-    Ready { main_view: Controller<MainView> },
+    Ready {
+        main_view: Controller<SidebarContentSplitView>,
+    },
     Unavailable,
 }
 
@@ -60,14 +63,14 @@ impl WindowContent {
 enum TrayPresence {
     Absent,
     Starting,
-    Shown(ksni::Handle<OverskrideTray>),
+    Shown(ksni::Handle<SystemTrayMenu>),
 }
 
-pub struct AppWindowInit {
-    pub preferences: AppPreferences,
+pub struct MainWindowShellInit {
+    pub preferences: GsettingsStoredPreferences,
 }
 
-pub struct AppWindow {
+pub struct MainWindowShell {
     content: WindowContent,
     run_in_background: bool,
     start_at_login: bool,
@@ -76,21 +79,21 @@ pub struct AppWindow {
 }
 
 #[derive(Debug)]
-pub enum AppWindowInput {
-    MainView(MainViewOutput),
+pub enum MainWindowShellInput {
+    SidebarContentSplitView(SidebarContentSplitViewOutput),
     PreferenceChanged(PreferenceChange),
     Tray(TrayRequest),
     OpenWindowRequested,
     QuitRequested,
 }
 
-pub enum AppWindowCommand {
-    TrayStarted(Result<ksni::Handle<OverskrideTray>, ksni::Error>),
+pub enum MainWindowShellCommand {
+    TrayStarted(Result<ksni::Handle<SystemTrayMenu>, ksni::Error>),
     TrayRefreshed,
     LoginAutostartApplied(Result<(), LoginAutostartError>),
 }
 
-impl std::fmt::Debug for AppWindowCommand {
+impl std::fmt::Debug for MainWindowShellCommand {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::TrayStarted(tray_outcome) => {
@@ -104,15 +107,15 @@ impl std::fmt::Debug for AppWindowCommand {
     }
 }
 
-fn register_app_actions(sender: &AsyncComponentSender<AppWindow>) {
+fn register_app_actions(sender: &AsyncComponentSender<MainWindowShell>) {
     let quit_sender = sender.input_sender().clone();
     let quit_action: RelmAction<QuitAction> = RelmAction::new_stateless(move |_quit_action| {
-        quit_sender.emit(AppWindowInput::QuitRequested);
+        quit_sender.emit(MainWindowShellInput::QuitRequested);
     });
     let show_window_sender = sender.input_sender().clone();
     let show_window_action: RelmAction<ShowWindowAction> =
         RelmAction::new_stateless(move |_show_window_action| {
-            show_window_sender.emit(AppWindowInput::OpenWindowRequested);
+            show_window_sender.emit(MainWindowShellInput::OpenWindowRequested);
         });
     let mut app_actions = RelmActionGroup::<AppActionGroup>::new();
     app_actions.add_action(quit_action);
@@ -120,7 +123,7 @@ fn register_app_actions(sender: &AsyncComponentSender<AppWindow>) {
     app_actions.register_for_main_application();
 }
 
-impl AppWindow {
+impl MainWindowShell {
     fn keeps_running_in_background(&self) -> bool {
         managed_by_systemd() || self.run_in_background
     }
@@ -145,12 +148,12 @@ impl AppWindow {
             return;
         }
         self.tray_presence = TrayPresence::Starting;
-        let tray = OverskrideTray {
+        let tray = SystemTrayMenu {
             window_sender: sender.input_sender().clone(),
             scope: self.content.tray_scope(),
             content: self.tray_content.clone(),
         };
-        sender.oneshot_command(async { AppWindowCommand::TrayStarted(tray.spawn().await) });
+        sender.oneshot_command(async { MainWindowShellCommand::TrayStarted(tray.spawn().await) });
     }
 
     fn refresh_tray(&self, sender: &AsyncComponentSender<Self>) {
@@ -161,7 +164,7 @@ impl AppWindow {
                 tray_handle
                     .update(move |tray| tray.content = tray_content)
                     .await;
-                AppWindowCommand::TrayRefreshed
+                MainWindowShellCommand::TrayRefreshed
             });
         }
     }
@@ -171,11 +174,13 @@ impl AppWindow {
             (TrayRequest::OpenWindow, _) => root.present(),
             (TrayRequest::Quit, _) => relm4::main_application().quit(),
             (TrayRequest::ShowSettings, WindowContent::Ready { main_view }) => {
-                main_view.emit(MainViewInput::Tray(TrayRequest::ShowSettings));
+                main_view.emit(SidebarContentSplitViewInput::Tray(
+                    TrayRequest::ShowSettings,
+                ));
                 root.present();
             }
             (bluetooth_request, WindowContent::Ready { main_view }) => {
-                main_view.emit(MainViewInput::Tray(bluetooth_request));
+                main_view.emit(SidebarContentSplitViewInput::Tray(bluetooth_request));
             }
             (_bluetooth_request, WindowContent::Unavailable) => {}
         }
@@ -191,13 +196,17 @@ impl AppWindow {
 
     fn apply_login_autostart(sender: &AsyncComponentSender<Self>, start_at_login: bool) {
         sender.oneshot_command(async move {
-            AppWindowCommand::LoginAutostartApplied(apply_login_autostart(start_at_login).await)
+            MainWindowShellCommand::LoginAutostartApplied(
+                apply_login_autostart(start_at_login).await,
+            )
         });
     }
 }
 
-async fn connect_bluetooth(preferences: &AppPreferences) -> Result<ReadyBluetooth, BluetoothError> {
-    let session = BluetoothSession::open().await?;
+async fn connect_bluetooth(
+    preferences: &GsettingsStoredPreferences,
+) -> Result<ReadyBluetooth, BluetoothError> {
+    let session = BluezDbusSession::open().await?;
     let radios = session.radios().await?;
     let remembered_adapter_name = preferences.remembered_adapter_name();
     let adapter_name = if radios
@@ -229,7 +238,10 @@ fn unavailable_page(bluetooth_error: BluetoothError) -> adw::ToolbarView {
     toolbar_view
 }
 
-fn collapse_when_narrow(window: &adw::ApplicationWindow, main_view: &Controller<MainView>) {
+fn collapse_when_narrow(
+    window: &adw::ApplicationWindow,
+    main_view: &Controller<SidebarContentSplitView>,
+) {
     let Ok(narrow_condition) = adw::BreakpointCondition::parse(NARROW_WINDOW_CONDITION) else {
         return;
     };
@@ -242,11 +254,11 @@ fn collapse_when_narrow(window: &adw::ApplicationWindow, main_view: &Controller<
     window.add_breakpoint(breakpoint);
 }
 
-impl AsyncComponent for AppWindow {
-    type Init = AppWindowInit;
-    type Input = AppWindowInput;
+impl AsyncComponent for MainWindowShell {
+    type Init = MainWindowShellInit;
+    type Input = MainWindowShellInput;
     type Output = ();
-    type CommandOutput = AppWindowCommand;
+    type CommandOutput = MainWindowShellCommand;
     type Root = adw::ApplicationWindow;
     type Widgets = ();
 
@@ -278,11 +290,11 @@ impl AsyncComponent for AppWindow {
             .build();
         let preference_sender = sender.input_sender().clone();
         preferences.connect_preference_changes(move |preference_change| {
-            preference_sender.emit(AppWindowInput::PreferenceChanged(preference_change));
+            preference_sender.emit(MainWindowShellInput::PreferenceChanged(preference_change));
         });
         let activation_sender = sender.input_sender().clone();
         relm4::main_application().connect_activate(move |_activated_application| {
-            activation_sender.emit(AppWindowInput::OpenWindowRequested);
+            activation_sender.emit(MainWindowShellInput::OpenWindowRequested);
         });
         register_app_actions(&sender);
         let run_in_background = preferences.run_in_background();
@@ -294,15 +306,18 @@ impl AsyncComponent for AppWindow {
                     Ok(obex_connection) => ObexAvailability::Available(obex_connection),
                     Err(_obex_missing) => ObexAvailability::Unavailable,
                 };
-                let main_view = MainView::builder()
-                    .launch(MainViewInit {
+                let main_view = SidebarContentSplitView::builder()
+                    .launch(SidebarContentSplitViewInit {
                         session: ready_bluetooth.session,
                         obex,
                         preferences,
                         radios: ready_bluetooth.radios,
                         adapter: ready_bluetooth.adapter,
                     })
-                    .forward(sender.input_sender(), AppWindowInput::MainView);
+                    .forward(
+                        sender.input_sender(),
+                        MainWindowShellInput::SidebarContentSplitView,
+                    );
                 root.set_content(Some(main_view.widget()));
                 collapse_when_narrow(&root, &main_view);
                 WindowContent::Ready { main_view }
@@ -330,28 +345,34 @@ impl AsyncComponent for AppWindow {
         root: &Self::Root,
     ) {
         match input {
-            AppWindowInput::MainView(MainViewOutput::TrayContentChanged(tray_content)) => {
+            MainWindowShellInput::SidebarContentSplitView(
+                SidebarContentSplitViewOutput::TrayContentChanged(tray_content),
+            ) => {
                 self.tray_content = tray_content;
                 self.refresh_tray(&sender);
             }
-            AppWindowInput::PreferenceChanged(PreferenceChange::RunInBackground(
+            MainWindowShellInput::PreferenceChanged(PreferenceChange::RunInBackground(
                 run_in_background,
             )) => {
                 self.run_in_background = run_in_background;
                 self.apply_background_mode(root, &sender);
             }
-            AppWindowInput::PreferenceChanged(PreferenceChange::StartAtLogin(start_at_login)) => {
+            MainWindowShellInput::PreferenceChanged(PreferenceChange::StartAtLogin(
+                start_at_login,
+            )) => {
                 self.start_at_login = start_at_login;
                 self.apply_background_mode(root, &sender);
             }
-            AppWindowInput::PreferenceChanged(
+            MainWindowShellInput::PreferenceChanged(
                 PreferenceChange::ShowUnnamedDevices(_)
                 | PreferenceChange::AutoAcceptSenders
                 | PreferenceChange::Unrelated,
             ) => {}
-            AppWindowInput::Tray(tray_request) => self.handle_tray_request(tray_request, root),
-            AppWindowInput::OpenWindowRequested => root.present(),
-            AppWindowInput::QuitRequested => relm4::main_application().quit(),
+            MainWindowShellInput::Tray(tray_request) => {
+                self.handle_tray_request(tray_request, root)
+            }
+            MainWindowShellInput::OpenWindowRequested => root.present(),
+            MainWindowShellInput::QuitRequested => relm4::main_application().quit(),
         }
     }
 
@@ -362,7 +383,7 @@ impl AsyncComponent for AppWindow {
         _root: &Self::Root,
     ) {
         match command_output {
-            AppWindowCommand::TrayStarted(Ok(tray_handle)) => {
+            MainWindowShellCommand::TrayStarted(Ok(tray_handle)) => {
                 if matches!(self.tray_presence, TrayPresence::Starting) {
                     self.tray_presence = TrayPresence::Shown(tray_handle);
                     self.refresh_tray(&sender);
@@ -370,12 +391,13 @@ impl AsyncComponent for AppWindow {
                     let _shutdown_runs_without_waiting = tray_handle.shutdown();
                 }
             }
-            AppWindowCommand::TrayStarted(Err(tray_error)) => {
+            MainWindowShellCommand::TrayStarted(Err(tray_error)) => {
                 self.tray_presence = TrayPresence::Absent;
                 eprintln!("No tray icon: {tray_error}");
             }
-            AppWindowCommand::TrayRefreshed | AppWindowCommand::LoginAutostartApplied(Ok(())) => {}
-            AppWindowCommand::LoginAutostartApplied(Err(autostart_error)) => {
+            MainWindowShellCommand::TrayRefreshed
+            | MainWindowShellCommand::LoginAutostartApplied(Ok(())) => {}
+            MainWindowShellCommand::LoginAutostartApplied(Err(autostart_error)) => {
                 eprintln!("Start at login not applied: {autostart_error}");
             }
         }

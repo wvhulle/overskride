@@ -1,6 +1,6 @@
 use crate::{
-    bluetooth_adapter::adapter_udev_hardware::RadioDescription,
-    bluez_dbus_session::{BluetoothSession, DeviceLocation},
+    bluetooth_adapter::adapter_udev_hardware::AdapterHardwareDescription,
+    bluez_dbus_session::{BluezDbusSession, DeviceLocation},
     bluez_operation_error::BluetoothError,
 };
 
@@ -18,14 +18,14 @@ pub enum RadioMembership {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RadioBond {
-    pub radio: RadioDescription,
+pub struct DeviceBondPerAdapter {
+    pub radio: AdapterHardwareDescription,
     pub adapter_address: bluer::Address,
     pub shown: bool,
     pub membership: RadioMembership,
 }
 
-impl RadioBond {
+impl DeviceBondPerAdapter {
     pub fn is_bonded(&self) -> bool {
         matches!(
             self.membership,
@@ -51,12 +51,12 @@ async fn read_radio_membership(
 }
 
 async fn read_radio_bond(
-    session: &BluetoothSession,
-    radio: RadioDescription,
+    session: &BluezDbusSession,
+    radio: AdapterHardwareDescription,
     shown_location: &DeviceLocation,
-) -> Result<RadioBond, BluetoothError> {
+) -> Result<DeviceBondPerAdapter, BluetoothError> {
     let adapter = session.adapter(&radio.adapter_name)?;
-    Ok(RadioBond {
+    Ok(DeviceBondPerAdapter {
         adapter_address: adapter.address().await?,
         shown: radio.adapter_name == shown_location.adapter_name,
         membership: read_radio_membership(&adapter, shown_location.address).await?,
@@ -65,9 +65,9 @@ async fn read_radio_bond(
 }
 
 pub async fn read_radio_bonds(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     shown_location: &DeviceLocation,
-) -> Result<Vec<RadioBond>, BluetoothError> {
+) -> Result<Vec<DeviceBondPerAdapter>, BluetoothError> {
     let radio_bond_reads = session
         .radios()
         .await?

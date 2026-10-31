@@ -7,31 +7,31 @@ use crate::shared_device_appearance::{
     pairing_status_badge, signal_icon_name, symbolic_device_icon_name,
 };
 
-pub struct DeviceRowItem {
+pub struct SidebarDeviceRowItem {
     pub(super) snapshot: DeviceSnapshot,
 }
 
-impl PartialEq for DeviceRowItem {
+impl PartialEq for SidebarDeviceRowItem {
     fn eq(&self, other_row: &Self) -> bool {
         self.cmp(other_row) == Ordering::Equal
     }
 }
 
-impl Eq for DeviceRowItem {}
+impl Eq for SidebarDeviceRowItem {}
 
-impl PartialOrd for DeviceRowItem {
+impl PartialOrd for SidebarDeviceRowItem {
     fn partial_cmp(&self, other_row: &Self) -> Option<Ordering> {
         Some(self.cmp(other_row))
     }
 }
 
-impl Ord for DeviceRowItem {
+impl Ord for SidebarDeviceRowItem {
     fn cmp(&self, other_row: &Self) -> Ordering {
         compare_devices(&self.snapshot, &other_row.snapshot)
     }
 }
 
-pub struct DeviceRowWidgets {
+pub struct SidebarDeviceRowWidgets {
     device_image: gtk::Image,
     name_label: gtk::Label,
     address_tail_label: gtk::Label,
@@ -39,11 +39,11 @@ pub struct DeviceRowWidgets {
     signal_image: gtk::Image,
 }
 
-impl RelmListItem for DeviceRowItem {
+impl RelmListItem for SidebarDeviceRowItem {
     type Root = gtk::Box;
-    type Widgets = DeviceRowWidgets;
+    type Widgets = SidebarDeviceRowWidgets;
 
-    fn setup(_list_item: &gtk::ListItem) -> (gtk::Box, DeviceRowWidgets) {
+    fn setup(_list_item: &gtk::ListItem) -> (gtk::Box, SidebarDeviceRowWidgets) {
         relm4::view! {
             row_box = gtk::Box {
                 set_spacing: 10,
@@ -74,7 +74,7 @@ impl RelmListItem for DeviceRowItem {
         }
         (
             row_box,
-            DeviceRowWidgets {
+            SidebarDeviceRowWidgets {
                 device_image,
                 name_label,
                 address_tail_label,

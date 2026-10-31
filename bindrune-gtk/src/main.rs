@@ -16,9 +16,9 @@ mod icon_names {
 use relm4::{adw, gtk::prelude::*};
 
 use crate::background_application_lifecycle::{
-    gsettings_stored_preferences::{APPLICATION_ID, AppPreferences},
+    gsettings_stored_preferences::{APPLICATION_ID, GsettingsStoredPreferences},
     login_autostart_entry::BACKGROUND_FLAG,
-    main_window_shell::{AppWindow, AppWindowInit},
+    main_window_shell::{MainWindowShell, MainWindowShellInit},
 };
 
 fn main() {
@@ -35,7 +35,7 @@ fn main() {
     let relm_application = relm4::RelmApp::from_app(application)
         .visible_on_activate(!started_in_background)
         .with_args(forwarded_arguments);
-    relm_application.run_async::<AppWindow>(AppWindowInit {
-        preferences: AppPreferences::load(),
+    relm_application.run_async::<MainWindowShell>(MainWindowShellInit {
+        preferences: GsettingsStoredPreferences::load(),
     });
 }

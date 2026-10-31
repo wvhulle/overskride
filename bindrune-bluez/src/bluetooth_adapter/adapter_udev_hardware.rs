@@ -1,13 +1,13 @@
 use std::ffi::OsStr;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RadioDescription {
+pub struct AdapterHardwareDescription {
     pub adapter_name: String,
     pub radio_label: String,
     pub hardware: RadioHardware,
 }
 
-impl RadioDescription {
+impl AdapterHardwareDescription {
     pub fn radio_subtitle(&self) -> &str {
         if self.radio_label == self.adapter_name {
             self.hardware.attachment.describe_attachment()
@@ -165,9 +165,9 @@ fn label_radio(adapter_name: &str, hardware: &RadioHardware) -> String {
     product_name.unwrap_or_else(|| adapter_name.to_string())
 }
 
-pub fn describe_radio(adapter_name: &str) -> RadioDescription {
+pub fn describe_radio(adapter_name: &str) -> AdapterHardwareDescription {
     let hardware = read_radio_hardware(adapter_name);
-    RadioDescription {
+    AdapterHardwareDescription {
         adapter_name: adapter_name.to_string(),
         radio_label: label_radio(adapter_name, &hardware),
         hardware,

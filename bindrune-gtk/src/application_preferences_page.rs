@@ -4,29 +4,31 @@ use relm4::{adw, adw::prelude::*, gtk, gtk::gio, prelude::*};
 
 use crate::{
     background_application_lifecycle::{
-        gsettings_stored_preferences::{AppPreferences, RUN_IN_BACKGROUND_KEY, START_AT_LOGIN_KEY},
+        gsettings_stored_preferences::{
+            GsettingsStoredPreferences, RUN_IN_BACKGROUND_KEY, START_AT_LOGIN_KEY,
+        },
         login_autostart_entry::managed_by_systemd,
     },
     icon_names,
     shared_page_widget_templates::{ClampedPage, PageHeader},
 };
 
-pub struct AppSettingsPage {
-    preferences: AppPreferences,
+pub struct ApplicationPreferencesPage {
+    preferences: GsettingsStoredPreferences,
     received_files_folder: PathBuf,
     folder_changed: bool,
 }
 
 #[derive(Debug)]
-pub enum AppSettingsInput {
+pub enum ApplicationPreferencesPageInput {
     ChooseReceivedFilesFolder,
     ReceivedFilesFolderChosen(PathBuf),
 }
 
 #[relm4::component(pub)]
-impl SimpleComponent for AppSettingsPage {
-    type Init = AppPreferences;
-    type Input = AppSettingsInput;
+impl SimpleComponent for ApplicationPreferencesPage {
+    type Init = GsettingsStoredPreferences;
+    type Input = ApplicationPreferencesPageInput;
     type Output = ();
 
     view! {
@@ -62,7 +64,7 @@ impl SimpleComponent for AppSettingsPage {
                             set_valign: gtk::Align::Center,
                             set_tooltip_text: Some("Choose Folder"),
                             add_css_class: "flat",
-                            connect_clicked => AppSettingsInput::ChooseReceivedFilesFolder,
+                            connect_clicked => ApplicationPreferencesPageInput::ChooseReceivedFilesFolder,
                         },
                     },
                 },
@@ -152,7 +154,7 @@ impl SimpleComponent for AppSettingsPage {
     fn update(&mut self, input: Self::Input, sender: ComponentSender<Self>) {
         self.folder_changed = false;
         match input {
-            AppSettingsInput::ChooseReceivedFilesFolder => {
+            ApplicationPreferencesPageInput::ChooseReceivedFilesFolder => {
                 let folder_dialog = gtk::FileDialog::builder()
                     .title("Choose Where Received Files Go")
                     .modal(true)
@@ -168,11 +170,13 @@ impl SimpleComponent for AppSettingsPage {
                         return;
                     };
                     if let Some(folder_path) = chosen_folder.path() {
-                        input_sender.emit(AppSettingsInput::ReceivedFilesFolderChosen(folder_path));
+                        input_sender.emit(
+                            ApplicationPreferencesPageInput::ReceivedFilesFolderChosen(folder_path),
+                        );
                     }
                 });
             }
-            AppSettingsInput::ReceivedFilesFolderChosen(folder_path) => {
+            ApplicationPreferencesPageInput::ReceivedFilesFolderChosen(folder_path) => {
                 self.preferences.set_received_files_folder(&folder_path);
                 self.received_files_folder = folder_path;
                 self.folder_changed = true;

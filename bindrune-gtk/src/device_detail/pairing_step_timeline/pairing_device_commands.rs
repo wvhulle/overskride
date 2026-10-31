@@ -17,7 +17,8 @@ use crate::{
     device_detail::pairing_step_timeline::{
         pairing_timeline_view_model::{ActivePairing, StepButtonAction, TimelineAction},
         pairing_timeline_widgets::{
-            PairingTimeline, PairingTimelineCommand, PairingTimelineInput, PairingTimelineOutput,
+            PairingStepTimeline, PairingStepTimelineCommand, PairingStepTimelineInput,
+            PairingStepTimelineOutput,
         },
     },
     incoming_request_prompts::prompt_dialog_and_notification_delivery::{
@@ -33,12 +34,12 @@ pub(super) fn pairing_mode_hint(snapshot: &DeviceSnapshot) -> &'static str {
     }
 }
 
-impl PairingTimeline {
+impl PairingStepTimeline {
     pub(super) fn read_radio_bonds(&self, sender: &ComponentSender<Self>) {
         let session = self.session.clone();
         let location = self.snapshot.location.clone();
         sender.oneshot_command(async move {
-            PairingTimelineCommand::RadioBondsRead(read_radio_bonds(&session, &location).await)
+            PairingStepTimelineCommand::RadioBondsRead(read_radio_bonds(&session, &location).await)
         });
     }
 
@@ -53,13 +54,14 @@ impl PairingTimeline {
                         Ok(pairing_progress) => {
                             pairing_progress
                                 .for_each(|progress| {
-                                    command_output.emit(PairingTimelineCommand::Pairing(progress));
+                                    command_output
+                                        .emit(PairingStepTimelineCommand::Pairing(progress));
                                     futures::future::ready(())
                                 })
                                 .await;
                         }
                         Err(lookup_failure) => {
-                            command_output.emit(PairingTimelineCommand::Pairing(
+                            command_output.emit(PairingStepTimelineCommand::Pairing(
                                 PairingProgress::Failed(lookup_failure.into()),
                             ))
                         }
@@ -93,7 +95,7 @@ impl PairingTimeline {
             } else {
                 disconnect_device(&session, &location).await
             };
-            PairingTimelineCommand::ConnectionChanged(outcome)
+            PairingStepTimelineCommand::ConnectionChanged(outcome)
         });
     }
 
@@ -101,7 +103,7 @@ impl PairingTimeline {
         let session = self.session.clone();
         let location = self.snapshot.location.clone();
         sender.oneshot_command(async move {
-            PairingTimelineCommand::Forgotten {
+            PairingStepTimelineCommand::Forgotten {
                 outcome: forget_device(&session, &location).await,
                 rescan,
             }
@@ -120,7 +122,7 @@ impl PairingTimeline {
         let input_sender = sender.input_sender().clone();
         relm4::spawn_local(async move {
             if choose_response(&confirmation_dialog).await == "remove" {
-                input_sender.emit(PairingTimelineInput::ForgetConfirmed);
+                input_sender.emit(PairingStepTimelineInput::ForgetConfirmed);
             }
         });
     }
@@ -142,23 +144,23 @@ impl PairingTimeline {
                 let session = self.session.clone();
                 let location = self.snapshot.location.clone();
                 sender.oneshot_command(async move {
-                    PairingTimelineCommand::PolicyApplied(
+                    PairingStepTimelineCommand::PolicyApplied(
                         set_connection_policy(&session, &location, connection_policy).await,
                     )
                 });
             }
             TimelineAction::ShowRadio(adapter_name) => {
                 let _device_page_gone =
-                    sender.output(PairingTimelineOutput::ShowRadio(adapter_name));
+                    sender.output(PairingStepTimelineOutput::ShowRadio(adapter_name));
             }
             TimelineAction::PairViaRadio(adapter_name) => {
                 let _device_page_gone =
-                    sender.output(PairingTimelineOutput::PairViaRadio(adapter_name));
+                    sender.output(PairingStepTimelineOutput::PairViaRadio(adapter_name));
             }
         }
     }
 
     pub(super) fn report_failure(sender: &ComponentSender<Self>, failure: BluetoothError) {
-        let _device_page_gone = sender.output(PairingTimelineOutput::Failed(failure));
+        let _device_page_gone = sender.output(PairingStepTimelineOutput::Failed(failure));
     }
 }

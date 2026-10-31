@@ -1,5 +1,5 @@
 use bindrune_bluez::{
-    bluez_dbus_session::BluetoothSession,
+    bluez_dbus_session::BluezDbusSession,
     bluez_operation_error::BluetoothError,
     remote_device::{
         remote_device_commands::rename_device, remote_device_snapshot::DeviceSnapshot,
@@ -14,12 +14,12 @@ enum OperationState {
 }
 
 pub struct DeviceNameGroupInit {
-    pub session: BluetoothSession,
+    pub session: BluezDbusSession,
     pub snapshot: DeviceSnapshot,
 }
 
 pub struct DeviceNameGroup {
-    session: BluetoothSession,
+    session: BluezDbusSession,
     snapshot: DeviceSnapshot,
     rename_operation: OperationState,
     pending_alias: Option<String>,

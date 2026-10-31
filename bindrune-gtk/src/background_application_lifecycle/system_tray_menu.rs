@@ -1,7 +1,7 @@
 use ksni::menu::{CheckmarkItem, StandardItem};
 
 use crate::background_application_lifecycle::{
-    gsettings_stored_preferences::APPLICATION_ID, main_window_shell::AppWindowInput,
+    gsettings_stored_preferences::APPLICATION_ID, main_window_shell::MainWindowShellInput,
 };
 
 const MOST_TRAY_DEVICES: usize = 8;
@@ -39,15 +39,16 @@ pub enum TrayScope {
     Bluetooth,
 }
 
-pub struct OverskrideTray {
-    pub window_sender: relm4::Sender<AppWindowInput>,
+pub struct SystemTrayMenu {
+    pub window_sender: relm4::Sender<MainWindowShellInput>,
     pub scope: TrayScope,
     pub content: TrayContent,
 }
 
-impl OverskrideTray {
+impl SystemTrayMenu {
     fn request(&self, tray_request: TrayRequest) {
-        self.window_sender.emit(AppWindowInput::Tray(tray_request));
+        self.window_sender
+            .emit(MainWindowShellInput::Tray(tray_request));
     }
 
     fn bluetooth_items(&self) -> Vec<ksni::MenuItem<Self>> {
@@ -96,13 +97,13 @@ impl OverskrideTray {
     }
 }
 
-fn device_item(tray_device: &TrayDevice) -> ksni::MenuItem<OverskrideTray> {
+fn device_item(tray_device: &TrayDevice) -> ksni::MenuItem<SystemTrayMenu> {
     let address = tray_device.address;
     let connected = tray_device.connected;
     CheckmarkItem {
         label: tray_device.display_name.clone(),
         checked: connected,
-        activate: Box::new(move |tray: &mut OverskrideTray| {
+        activate: Box::new(move |tray: &mut SystemTrayMenu| {
             tray.request(TrayRequest::SetDeviceConnected {
                 address,
                 connected: !connected,
@@ -113,7 +114,7 @@ fn device_item(tray_device: &TrayDevice) -> ksni::MenuItem<OverskrideTray> {
     .into()
 }
 
-impl ksni::Tray for OverskrideTray {
+impl ksni::Tray for SystemTrayMenu {
     fn id(&self) -> String {
         APPLICATION_ID.to_string()
     }

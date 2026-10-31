@@ -1,5 +1,5 @@
 use bindrune_bluez::{
-    bluetooth_adapter::device_bond_per_adapter::RadioBond,
+    bluetooth_adapter::device_bond_per_adapter::DeviceBondPerAdapter,
     device_pairing::{
         pairing_step_failure::PairingFailure,
         pairing_step_progress::{ConnectionPolicy, PairingStep},
@@ -143,7 +143,7 @@ pub struct TimelinePresentation {
 
 pub struct TimelineInputs<'inputs> {
     pub snapshot: &'inputs DeviceSnapshot,
-    pub radio_bonds: &'inputs [RadioBond],
+    pub radio_bonds: &'inputs [DeviceBondPerAdapter],
     pub active_pairing: &'inputs ActivePairing,
     pub link_measurements: &'inputs LinkMeasurements,
 }

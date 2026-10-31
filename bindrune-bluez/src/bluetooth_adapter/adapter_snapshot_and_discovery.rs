@@ -5,7 +5,7 @@ use futures::{Stream, StreamExt};
 
 use crate::{
     bluetooth_adapter::adapter_udev_hardware::{RadioHardware, describe_radio},
-    bluez_dbus_session::BluetoothSession,
+    bluez_dbus_session::BluezDbusSession,
     bluez_operation_error::BluetoothError,
 };
 
@@ -61,14 +61,14 @@ impl AdapterSnapshot {
 }
 
 pub async fn read_adapter(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     adapter_name: &str,
 ) -> Result<AdapterSnapshot, BluetoothError> {
     AdapterSnapshot::read(&session.adapter(adapter_name)?).await
 }
 
 pub async fn adapter_changes(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     adapter_name: &str,
 ) -> Result<impl Stream<Item = AdapterSnapshot> + Send + 'static, BluetoothError> {
     let adapter = session.adapter(adapter_name)?;
@@ -94,7 +94,7 @@ pub async fn adapter_changes(
 }
 
 pub async fn set_powered(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     adapter_name: &str,
     powered: bool,
 ) -> Result<AdapterSnapshot, BluetoothError> {
@@ -104,7 +104,7 @@ pub async fn set_powered(
 }
 
 pub async fn set_visible_for_pairing(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     adapter_name: &str,
     visible: bool,
 ) -> Result<AdapterSnapshot, BluetoothError> {
@@ -117,7 +117,7 @@ pub async fn set_visible_for_pairing(
 }
 
 pub async fn set_discoverable_timeout(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     adapter_name: &str,
     discoverable_timeout: Duration,
 ) -> Result<AdapterSnapshot, BluetoothError> {
@@ -128,7 +128,7 @@ pub async fn set_discoverable_timeout(
 }
 
 pub async fn set_alias(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     adapter_name: &str,
     alias: String,
 ) -> Result<AdapterSnapshot, BluetoothError> {
@@ -149,7 +149,7 @@ impl Drop for DiscoverySession {
 }
 
 pub async fn start_discovery(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     adapter_name: &str,
 ) -> Result<DiscoverySession, BluetoothError> {
     let adapter = session.adapter(adapter_name)?;

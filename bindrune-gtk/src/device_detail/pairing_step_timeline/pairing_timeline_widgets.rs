@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
 use bindrune_bluez::{
-    bluetooth_adapter::device_bond_per_adapter::RadioBond,
-    bluez_dbus_session::BluetoothSession,
+    bluetooth_adapter::device_bond_per_adapter::DeviceBondPerAdapter,
+    bluez_dbus_session::BluezDbusSession,
     bluez_operation_error::BluetoothError,
     device_pairing::{
         pairing_step_failure::{AuthorizationFailure, ConnectionStepFailure, PairingFailure},
@@ -37,16 +37,16 @@ use crate::{
 
 const LINK_TICK: Duration = Duration::from_secs(1);
 
-pub struct PairingTimelineInit {
-    pub session: BluetoothSession,
+pub struct PairingStepTimelineInit {
+    pub session: BluezDbusSession,
     pub snapshot: DeviceSnapshot,
     pub connection_history: ConnectionHistory,
 }
 
-pub struct PairingTimeline {
-    pub(super) session: BluetoothSession,
+pub struct PairingStepTimeline {
+    pub(super) session: BluezDbusSession,
     pub(super) snapshot: DeviceSnapshot,
-    radio_bonds: Vec<RadioBond>,
+    radio_bonds: Vec<DeviceBondPerAdapter>,
     pub(super) active_pairing: ActivePairing,
     link_measurements: LinkMeasurements,
     report_generation: u64,
@@ -56,7 +56,7 @@ pub struct PairingTimeline {
 }
 
 #[derive(Debug)]
-pub enum PairingTimelineInput {
+pub enum PairingStepTimelineInput {
     DeviceChanged(DeviceSnapshot),
     ConnectionHistoryChanged(ConnectionHistory),
     RowActionChosen(TimelineAction),
@@ -64,7 +64,7 @@ pub enum PairingTimelineInput {
 }
 
 #[derive(Debug)]
-pub enum PairingTimelineOutput {
+pub enum PairingStepTimelineOutput {
     Failed(BluetoothError),
     Forgotten { hint: String, rescan: bool },
     ShowRadio(String),
@@ -72,8 +72,8 @@ pub enum PairingTimelineOutput {
 }
 
 #[derive(Debug)]
-pub enum PairingTimelineCommand {
-    RadioBondsRead(Result<Vec<RadioBond>, BluetoothError>),
+pub enum PairingStepTimelineCommand {
+    RadioBondsRead(Result<Vec<DeviceBondPerAdapter>, BluetoothError>),
     Pairing(PairingProgress),
     ConnectionChanged(Result<(), ConnectionStepFailure>),
     PolicyApplied(Result<(), AuthorizationFailure>),
@@ -88,13 +88,16 @@ pub enum PairingTimelineCommand {
     },
 }
 
-pub struct PairingTimelineWidgets {
+pub struct PairingStepTimelineWidgets {
     preferences_group: adw::PreferencesGroup,
     radio_expander: adw::ExpanderRow,
     radio_info_icon: gtk::Image,
 }
 
-fn render_timeline_header(widgets: &PairingTimelineWidgets, presentation: &TimelinePresentation) {
+fn render_timeline_header(
+    widgets: &PairingStepTimelineWidgets,
+    presentation: &TimelinePresentation,
+) {
     let radios = &presentation.radios;
     widgets
         .preferences_group
@@ -111,7 +114,7 @@ fn render_timeline_header(widgets: &PairingTimelineWidgets, presentation: &Timel
         .set_tooltip_text(Some(&format!("Also bonded via {}", radios.also_bonded_via)));
 }
 
-impl PairingTimeline {
+impl PairingStepTimeline {
     fn current_presentation(&self) -> TimelinePresentation {
         TimelineInputs {
             snapshot: &self.snapshot,
@@ -171,7 +174,7 @@ impl PairingTimeline {
                 sender.command(move |command_output, shutdown| {
                     shutdown
                         .register(report_timing(hidraw_node).for_each(move |sample| {
-                            command_output.emit(PairingTimelineCommand::ReportTimingSampled {
+                            command_output.emit(PairingStepTimelineCommand::ReportTimingSampled {
                                 generation,
                                 sample,
                             });
@@ -206,13 +209,13 @@ impl PairingTimeline {
     }
 }
 
-impl Component for PairingTimeline {
-    type Init = PairingTimelineInit;
-    type Input = PairingTimelineInput;
-    type Output = PairingTimelineOutput;
-    type CommandOutput = PairingTimelineCommand;
+impl Component for PairingStepTimeline {
+    type Init = PairingStepTimelineInit;
+    type Input = PairingStepTimelineInput;
+    type Output = PairingStepTimelineOutput;
+    type CommandOutput = PairingStepTimelineCommand;
     type Root = adw::PreferencesGroup;
-    type Widgets = PairingTimelineWidgets;
+    type Widgets = PairingStepTimelineWidgets;
 
     fn init_root() -> Self::Root {
         adw::PreferencesGroup::builder().title("Pairing").build()
@@ -234,10 +237,14 @@ impl Component for PairingTimeline {
 
         let adapter_bond_rows = FactoryVecDeque::builder()
             .launch(radio_expander.clone())
-            .forward(sender.input_sender(), PairingTimelineInput::RowActionChosen);
-        let step_rows = FactoryVecDeque::builder()
-            .launch(root.clone())
-            .forward(sender.input_sender(), PairingTimelineInput::RowActionChosen);
+            .forward(
+                sender.input_sender(),
+                PairingStepTimelineInput::RowActionChosen,
+            );
+        let step_rows = FactoryVecDeque::builder().launch(root.clone()).forward(
+            sender.input_sender(),
+            PairingStepTimelineInput::RowActionChosen,
+        );
         let link_measurements = LinkMeasurements::unmeasured(timeline_init.connection_history);
         let initial_presentation = TimelineInputs {
             snapshot: &timeline_init.snapshot,
@@ -269,7 +276,7 @@ impl Component for PairingTimeline {
                 });
         }
         model.replace_adapter_bond_rows();
-        let widgets = PairingTimelineWidgets {
+        let widgets = PairingStepTimelineWidgets {
             preferences_group: root,
             radio_expander,
             radio_info_icon,
@@ -284,7 +291,7 @@ impl Component for PairingTimeline {
                     let mut link_ticks = tokio::time::interval(LINK_TICK);
                     loop {
                         link_ticks.tick().await;
-                        command_output.emit(PairingTimelineCommand::LinkTick);
+                        command_output.emit(PairingStepTimelineCommand::LinkTick);
                     }
                 })
                 .drop_on_shutdown()
@@ -294,7 +301,7 @@ impl Component for PairingTimeline {
 
     fn update(&mut self, input: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match input {
-            PairingTimelineInput::DeviceChanged(snapshot) => {
+            PairingStepTimelineInput::DeviceChanged(snapshot) => {
                 let connection_changed = snapshot.connected != self.snapshot.connected;
                 self.snapshot = snapshot;
                 if connection_changed {
@@ -303,14 +310,14 @@ impl Component for PairingTimeline {
                 self.follow_report_timing(&sender);
                 self.present_timeline();
             }
-            PairingTimelineInput::ConnectionHistoryChanged(connection_history) => {
+            PairingStepTimelineInput::ConnectionHistoryChanged(connection_history) => {
                 self.link_measurements.connection_history = connection_history;
                 self.present_timeline();
             }
-            PairingTimelineInput::RowActionChosen(timeline_action) => {
+            PairingStepTimelineInput::RowActionChosen(timeline_action) => {
                 self.handle_timeline_action(timeline_action, &sender);
             }
-            PairingTimelineInput::ForgetConfirmed => self.forget(false, &sender),
+            PairingStepTimelineInput::ForgetConfirmed => self.forget(false, &sender),
         }
     }
 
@@ -321,41 +328,41 @@ impl Component for PairingTimeline {
         _root: &Self::Root,
     ) {
         match command_output {
-            PairingTimelineCommand::LinkTick => {
+            PairingStepTimelineCommand::LinkTick => {
                 if self.snapshot.connected {
                     self.present_timeline();
                 }
             }
-            PairingTimelineCommand::ReportTimingSampled { generation, sample } => {
+            PairingStepTimelineCommand::ReportTimingSampled { generation, sample } => {
                 self.record_report_timing(generation, sample);
             }
-            PairingTimelineCommand::RadioBondsRead(Ok(radio_bonds)) => {
+            PairingStepTimelineCommand::RadioBondsRead(Ok(radio_bonds)) => {
                 self.radio_bonds = radio_bonds;
                 self.present_timeline();
             }
-            PairingTimelineCommand::RadioBondsRead(Err(_unreadable_radios)) => {}
-            PairingTimelineCommand::Pairing(PairingProgress::Running(running_step)) => {
+            PairingStepTimelineCommand::RadioBondsRead(Err(_unreadable_radios)) => {}
+            PairingStepTimelineCommand::Pairing(PairingProgress::Running(running_step)) => {
                 self.active_pairing = ActivePairing::Running(running_step);
                 self.present_timeline();
             }
-            PairingTimelineCommand::Pairing(PairingProgress::Failed(pairing_failure)) => {
+            PairingStepTimelineCommand::Pairing(PairingProgress::Failed(pairing_failure)) => {
                 self.active_pairing = ActivePairing::Failed(pairing_failure);
                 self.present_timeline();
             }
-            PairingTimelineCommand::Pairing(PairingProgress::Finished) => {
+            PairingStepTimelineCommand::Pairing(PairingProgress::Finished) => {
                 self.active_pairing = ActivePairing::Idle;
                 self.read_radio_bonds(&sender);
                 self.present_timeline();
             }
-            PairingTimelineCommand::ConnectionChanged(Ok(())) => {
+            PairingStepTimelineCommand::ConnectionChanged(Ok(())) => {
                 self.active_pairing = ActivePairing::Idle;
                 self.present_timeline();
             }
-            PairingTimelineCommand::ConnectionChanged(Err(connection_failure)) => {
+            PairingStepTimelineCommand::ConnectionChanged(Err(connection_failure)) => {
                 self.active_pairing = ActivePairing::Failed(connection_failure.into());
                 self.present_timeline();
             }
-            PairingTimelineCommand::PolicyApplied(Ok(())) => {
+            PairingStepTimelineCommand::PolicyApplied(Ok(())) => {
                 if matches!(
                     &self.active_pairing,
                     ActivePairing::Failed(PairingFailure::Authorization(_))
@@ -364,11 +371,11 @@ impl Component for PairingTimeline {
                 }
                 self.present_timeline();
             }
-            PairingTimelineCommand::PolicyApplied(Err(authorization_failure)) => {
+            PairingStepTimelineCommand::PolicyApplied(Err(authorization_failure)) => {
                 self.active_pairing = ActivePairing::Failed(authorization_failure.into());
                 self.present_timeline();
             }
-            PairingTimelineCommand::Forgotten {
+            PairingStepTimelineCommand::Forgotten {
                 outcome: Ok(()),
                 rescan,
             } => {
@@ -385,9 +392,9 @@ impl Component for PairingTimeline {
                     )
                 };
                 let _device_page_gone =
-                    sender.output(PairingTimelineOutput::Forgotten { hint, rescan });
+                    sender.output(PairingStepTimelineOutput::Forgotten { hint, rescan });
             }
-            PairingTimelineCommand::Forgotten {
+            PairingStepTimelineCommand::Forgotten {
                 outcome: Err(forget_error),
                 ..
             } => Self::report_failure(&sender, forget_error),

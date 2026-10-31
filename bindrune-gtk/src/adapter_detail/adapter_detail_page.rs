@@ -2,7 +2,7 @@ use bindrune_bluez::{
     bluetooth_adapter::adapter_snapshot_and_discovery::{
         AdapterSnapshot, adapter_changes, set_alias, set_powered,
     },
-    bluez_dbus_session::BluetoothSession,
+    bluez_dbus_session::BluezDbusSession,
     bluez_operation_error::BluetoothError,
 };
 use futures::StreamExt;
@@ -19,13 +19,13 @@ use crate::{
     shared_page_widget_templates::{ClampedPage, PageHeader},
 };
 
-pub struct AdapterPageInit {
-    pub session: BluetoothSession,
+pub struct AdapterDetailPageInit {
+    pub session: BluezDbusSession,
     pub adapter: AdapterSnapshot,
 }
 
-pub struct AdapterPage {
-    session: BluetoothSession,
+pub struct AdapterDetailPage {
+    session: BluezDbusSession,
     adapter: AdapterSnapshot,
     alias_changed: bool,
     alias_saving: bool,
@@ -34,7 +34,7 @@ pub struct AdapterPage {
 }
 
 #[derive(Debug)]
-pub enum AdapterPageInput {
+pub enum AdapterDetailPageInput {
     PoweredToggled(bool),
     VisibleForPairingToggled(bool),
     AliasApplied(String),
@@ -42,19 +42,19 @@ pub enum AdapterPageInput {
 }
 
 #[derive(Debug)]
-pub enum AdapterPageOutput {
+pub enum AdapterDetailPageOutput {
     Failed(BluetoothError),
     AdapterChanged(AdapterSnapshot),
 }
 
 #[derive(Debug)]
-pub enum AdapterPageCommand {
+pub enum AdapterDetailPageCommand {
     AdapterChanged(AdapterSnapshot),
     ActionFinished(Result<AdapterSnapshot, BluetoothError>),
     AliasSaved(Result<AdapterSnapshot, BluetoothError>),
 }
 
-impl AdapterPage {
+impl AdapterDetailPage {
     fn show_adapter(&mut self, adapter: AdapterSnapshot, sender: &ComponentSender<Self>) {
         self.alias_changed = adapter.alias != self.adapter.alias;
         self.adapter = adapter;
@@ -66,16 +66,18 @@ impl AdapterPage {
             .emit(AdapterHardwareGroupInput::AdapterChanged(
                 self.adapter.clone(),
             ));
-        let _app_gone = sender.output(AdapterPageOutput::AdapterChanged(self.adapter.clone()));
+        let _app_gone = sender.output(AdapterDetailPageOutput::AdapterChanged(
+            self.adapter.clone(),
+        ));
     }
 }
 
 #[relm4::component(pub)]
-impl Component for AdapterPage {
-    type Init = AdapterPageInit;
-    type Input = AdapterPageInput;
-    type Output = AdapterPageOutput;
-    type CommandOutput = AdapterPageCommand;
+impl Component for AdapterDetailPage {
+    type Init = AdapterDetailPageInit;
+    type Input = AdapterDetailPageInput;
+    type Output = AdapterDetailPageOutput;
+    type CommandOutput = AdapterDetailPageCommand;
 
     view! {
         #[template]
@@ -106,7 +108,7 @@ impl Component for AdapterPage {
                         #[block_signal(powered_handler)]
                         set_active: model.adapter.powered,
                         connect_active_notify[sender] => move |switch_row| {
-                            sender.input(AdapterPageInput::PoweredToggled(switch_row.is_active()));
+                            sender.input(AdapterDetailPageInput::PoweredToggled(switch_row.is_active()));
                         } @powered_handler,
                     },
                 },
@@ -129,7 +131,7 @@ impl Component for AdapterPage {
                         #[watch]
                         set_editable: !model.alias_saving,
                         connect_apply[sender] => move |entry_row| {
-                            sender.input(AdapterPageInput::AliasApplied(entry_row.text().to_string()));
+                            sender.input(AdapterDetailPageInput::AliasApplied(entry_row.text().to_string()));
                         },
 
                         add_suffix = &gtk::Spinner {
@@ -175,7 +177,7 @@ impl Component for AdapterPage {
             })
             .forward(
                 sender.input_sender(),
-                AdapterPageInput::PairingVisibilityReported,
+                AdapterDetailPageInput::PairingVisibilityReported,
             );
         let hardware_group = AdapterHardwareGroup::builder()
             .launch(page_init.adapter.clone())
@@ -204,7 +206,7 @@ impl Component for AdapterPage {
                     adapter_snapshots
                         .for_each(|adapter_snapshot| {
                             command_output
-                                .emit(AdapterPageCommand::AdapterChanged(adapter_snapshot));
+                                .emit(AdapterDetailPageCommand::AdapterChanged(adapter_snapshot));
                             futures::future::ready(())
                         })
                         .await;
@@ -220,20 +222,20 @@ impl Component for AdapterPage {
         let session = self.session.clone();
         let adapter_name = self.adapter.adapter_name.clone();
         match input {
-            AdapterPageInput::PoweredToggled(powered) if powered != self.adapter.powered => {
+            AdapterDetailPageInput::PoweredToggled(powered) if powered != self.adapter.powered => {
                 sender.oneshot_command(async move {
-                    AdapterPageCommand::ActionFinished(
+                    AdapterDetailPageCommand::ActionFinished(
                         set_powered(&session, &adapter_name, powered).await,
                     )
                 });
             }
-            AdapterPageInput::PoweredToggled(_) => {}
-            AdapterPageInput::VisibleForPairingToggled(visible) => {
+            AdapterDetailPageInput::PoweredToggled(_) => {}
+            AdapterDetailPageInput::VisibleForPairingToggled(visible) => {
                 self.pairing_visibility.emit(
                     PairingVisibilityGroupInput::VisibleForPairingToggled(visible),
                 );
             }
-            AdapterPageInput::AliasApplied(entered_alias) => {
+            AdapterDetailPageInput::AliasApplied(entered_alias) => {
                 let alias = entered_alias.trim().to_owned();
                 if alias.is_empty() || alias == self.adapter.alias {
                     self.alias_changed = true;
@@ -241,16 +243,18 @@ impl Component for AdapterPage {
                 }
                 self.alias_saving = true;
                 sender.oneshot_command(async move {
-                    AdapterPageCommand::AliasSaved(set_alias(&session, &adapter_name, alias).await)
+                    AdapterDetailPageCommand::AliasSaved(
+                        set_alias(&session, &adapter_name, alias).await,
+                    )
                 });
             }
-            AdapterPageInput::PairingVisibilityReported(
+            AdapterDetailPageInput::PairingVisibilityReported(
                 PairingVisibilityGroupOutput::AdapterChanged(adapter_snapshot),
             ) => self.show_adapter(adapter_snapshot, &sender),
-            AdapterPageInput::PairingVisibilityReported(PairingVisibilityGroupOutput::Failed(
-                adapter_error,
-            )) => {
-                let _app_gone = sender.output(AdapterPageOutput::Failed(adapter_error));
+            AdapterDetailPageInput::PairingVisibilityReported(
+                PairingVisibilityGroupOutput::Failed(adapter_error),
+            ) => {
+                let _app_gone = sender.output(AdapterDetailPageOutput::Failed(adapter_error));
             }
         }
     }
@@ -263,21 +267,21 @@ impl Component for AdapterPage {
     ) {
         self.alias_changed = false;
         match command_output {
-            AdapterPageCommand::AdapterChanged(adapter_snapshot)
-            | AdapterPageCommand::ActionFinished(Ok(adapter_snapshot)) => {
+            AdapterDetailPageCommand::AdapterChanged(adapter_snapshot)
+            | AdapterDetailPageCommand::ActionFinished(Ok(adapter_snapshot)) => {
                 self.show_adapter(adapter_snapshot, &sender);
             }
-            AdapterPageCommand::ActionFinished(Err(adapter_error)) => {
-                let _app_gone = sender.output(AdapterPageOutput::Failed(adapter_error));
+            AdapterDetailPageCommand::ActionFinished(Err(adapter_error)) => {
+                let _app_gone = sender.output(AdapterDetailPageOutput::Failed(adapter_error));
             }
-            AdapterPageCommand::AliasSaved(Ok(adapter_snapshot)) => {
+            AdapterDetailPageCommand::AliasSaved(Ok(adapter_snapshot)) => {
                 self.alias_saving = false;
                 self.show_adapter(adapter_snapshot, &sender);
             }
-            AdapterPageCommand::AliasSaved(Err(adapter_error)) => {
+            AdapterDetailPageCommand::AliasSaved(Err(adapter_error)) => {
                 self.alias_saving = false;
                 self.alias_changed = true;
-                let _app_gone = sender.output(AdapterPageOutput::Failed(adapter_error));
+                let _app_gone = sender.output(AdapterDetailPageOutput::Failed(adapter_error));
             }
         }
     }

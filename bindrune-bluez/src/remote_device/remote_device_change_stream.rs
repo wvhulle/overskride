@@ -7,7 +7,7 @@ use futures::{
 };
 
 use crate::{
-    bluez_dbus_session::{BluetoothSession, DeviceLocation},
+    bluez_dbus_session::{BluezDbusSession, DeviceLocation},
     bluez_operation_error::BluetoothError,
     remote_device::remote_device_snapshot::{DeviceSnapshot, PropertyRelevance},
 };
@@ -134,7 +134,7 @@ impl DeviceSnapshots {
 }
 
 pub async fn device_changes(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     adapter_name: &str,
 ) -> Result<impl Stream<Item = DeviceChange> + Send + 'static, BluetoothError> {
     let adapter = session.adapter(adapter_name)?;

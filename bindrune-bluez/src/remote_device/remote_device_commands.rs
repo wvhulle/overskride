@@ -1,7 +1,7 @@
 use futures::{Stream, StreamExt, future, stream};
 
 use crate::{
-    bluez_dbus_session::{BluetoothSession, DeviceLocation},
+    bluez_dbus_session::{BluezDbusSession, DeviceLocation},
     bluez_operation_error::BluetoothError,
     device_pairing::{
         pairing_step_failure::{
@@ -21,28 +21,28 @@ const PAIRING_SEQUENCE: [PairingStep; 4] = [
 ];
 
 pub async fn read_device(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     location: &DeviceLocation,
 ) -> Result<DeviceSnapshot, BluetoothError> {
     DeviceSnapshot::read(&session.device(location)?, location.clone()).await
 }
 
 pub async fn connect_device(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     location: &DeviceLocation,
 ) -> Result<(), ConnectionStepFailure> {
     Ok(session.device(location)?.connect().await?)
 }
 
 pub async fn disconnect_device(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     location: &DeviceLocation,
 ) -> Result<(), ConnectionStepFailure> {
     Ok(session.device(location)?.disconnect().await?)
 }
 
 pub async fn rename_device(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     location: &DeviceLocation,
     alias: &str,
 ) -> Result<(), BluetoothError> {
@@ -51,7 +51,7 @@ pub async fn rename_device(
 }
 
 pub async fn forget_device(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     location: &DeviceLocation,
 ) -> Result<(), BluetoothError> {
     Ok(session
@@ -61,7 +61,7 @@ pub async fn forget_device(
 }
 
 pub async fn set_connection_policy(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     location: &DeviceLocation,
     connection_policy: ConnectionPolicy,
 ) -> Result<(), AuthorizationFailure> {
@@ -133,7 +133,7 @@ fn pairing_step_progress(
 }
 
 pub fn pair_trust_and_connect(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     location: &DeviceLocation,
 ) -> Result<impl Stream<Item = PairingProgress> + Send + 'static, PairStepFailure> {
     let device = session.device(location)?;

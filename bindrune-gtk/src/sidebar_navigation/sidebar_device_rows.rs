@@ -1,5 +1,5 @@
 use bindrune_bluez::{
-    bluez_dbus_session::BluetoothSession,
+    bluez_dbus_session::BluezDbusSession,
     bluez_operation_error::BluetoothError,
     remote_device::{
         remote_device_change_stream::{DeviceChange, device_changes},
@@ -15,34 +15,34 @@ use relm4::{
 use crate::{
     icon_names,
     sidebar_navigation::{
-        sidebar_device_row_item::DeviceRowItem,
+        sidebar_device_row_item::SidebarDeviceRowItem,
         unnamed_device_count_section::{
             NAMED_ONLY_FILTER_INDEX, describe_hidden_unnamed, install_name_sections,
         },
     },
 };
 
-pub struct DeviceListSource {
-    pub session: BluetoothSession,
+pub struct SidebarDeviceRowsSource {
+    pub session: BluezDbusSession,
     pub adapter_name: String,
     pub show_unnamed_devices: bool,
 }
 
-pub struct DeviceList {
-    device_rows: TypedListView<DeviceRowItem, gtk::NoSelection>,
+pub struct SidebarDeviceRows {
+    device_rows: TypedListView<SidebarDeviceRowItem, gtk::NoSelection>,
     show_unnamed_devices: bool,
     unnamed_device_count: usize,
 }
 
 #[derive(Debug)]
-pub enum DeviceListInput {
+pub enum SidebarDeviceRowsInput {
     ShowUnnamedDevices(bool),
     ShowUnnamedRequested,
     Activated(u32),
 }
 
 #[derive(Debug)]
-pub enum DeviceListOutput {
+pub enum SidebarDeviceRowsOutput {
     Opened(DeviceSnapshot),
     ShowUnnamedRequested,
     Changed(DeviceChange),
@@ -55,7 +55,7 @@ pub enum DeviceStreamEvent {
     Unavailable(BluetoothError),
 }
 
-impl DeviceList {
+impl SidebarDeviceRows {
     fn position_of(&self, address: bindrune_bluez::Address) -> Option<u32> {
         self.device_rows
             .find(|row| row.snapshot.address() == address)
@@ -65,7 +65,7 @@ impl DeviceList {
         if let Some(existing_position) = self.position_of(snapshot.address()) {
             self.device_rows.remove(existing_position);
         }
-        self.device_rows.append(DeviceRowItem { snapshot });
+        self.device_rows.append(SidebarDeviceRowItem { snapshot });
     }
 
     fn count_unnamed_devices(&mut self) {
@@ -96,10 +96,10 @@ impl DeviceList {
 }
 
 #[relm4::component(pub)]
-impl Component for DeviceList {
-    type Init = DeviceListSource;
-    type Input = DeviceListInput;
-    type Output = DeviceListOutput;
+impl Component for SidebarDeviceRows {
+    type Init = SidebarDeviceRowsSource;
+    type Input = SidebarDeviceRowsInput;
+    type Output = SidebarDeviceRowsOutput;
     type CommandOutput = DeviceStreamEvent;
 
     view! {
@@ -122,7 +122,7 @@ impl Component for DeviceList {
                 #[watch]
                 set_visible: !model.device_rows.is_empty(),
                 connect_activate[sender] => move |_list_view, position| {
-                    sender.input(DeviceListInput::Activated(position));
+                    sender.input(SidebarDeviceRowsInput::Activated(position));
                 },
             },
 
@@ -146,7 +146,7 @@ impl Component for DeviceList {
                     set_label: "Show",
                     set_valign: gtk::Align::Center,
                     set_css_classes: &["flat", "caption"],
-                    connect_clicked => DeviceListInput::ShowUnnamedRequested,
+                    connect_clicked => SidebarDeviceRowsInput::ShowUnnamedRequested,
                 },
             },
         }
@@ -158,7 +158,7 @@ impl Component for DeviceList {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let mut device_rows = TypedListView::with_sorting();
-        device_rows.add_filter(|row: &DeviceRowItem| row.snapshot.has_meaningful_name());
+        device_rows.add_filter(|row: &SidebarDeviceRowItem| row.snapshot.has_meaningful_name());
         device_rows.set_filter_status(NAMED_ONLY_FILTER_INDEX, !device_source.show_unnamed_devices);
         let model = Self {
             device_rows,
@@ -169,7 +169,7 @@ impl Component for DeviceList {
         install_name_sections(device_list_view);
         let widgets = view_output!();
 
-        let DeviceListSource {
+        let SidebarDeviceRowsSource {
             session,
             adapter_name,
             ..
@@ -199,20 +199,20 @@ impl Component for DeviceList {
 
     fn update(&mut self, input: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match input {
-            DeviceListInput::ShowUnnamedDevices(show_unnamed_devices) => {
+            SidebarDeviceRowsInput::ShowUnnamedDevices(show_unnamed_devices) => {
                 self.show_unnamed_devices = show_unnamed_devices;
                 self.device_rows
                     .set_filter_status(NAMED_ONLY_FILTER_INDEX, !show_unnamed_devices);
             }
-            DeviceListInput::ShowUnnamedRequested => {
-                let _app_gone = sender.output(DeviceListOutput::ShowUnnamedRequested);
+            SidebarDeviceRowsInput::ShowUnnamedRequested => {
+                let _app_gone = sender.output(SidebarDeviceRowsOutput::ShowUnnamedRequested);
             }
-            DeviceListInput::Activated(visible_position) => {
+            SidebarDeviceRowsInput::Activated(visible_position) => {
                 let Some(activated_row) = self.device_rows.get_visible(visible_position) else {
                     return;
                 };
                 let snapshot = activated_row.borrow().snapshot.clone();
-                let _app_gone = sender.output(DeviceListOutput::Opened(snapshot));
+                let _app_gone = sender.output(SidebarDeviceRowsOutput::Opened(snapshot));
             }
         }
     }
@@ -226,10 +226,10 @@ impl Component for DeviceList {
         let output = match stream_event {
             DeviceStreamEvent::Change(device_change) => {
                 self.apply_change(&device_change);
-                DeviceListOutput::Changed(device_change)
+                SidebarDeviceRowsOutput::Changed(device_change)
             }
             DeviceStreamEvent::Unavailable(subscription_error) => {
-                DeviceListOutput::Unavailable(subscription_error)
+                SidebarDeviceRowsOutput::Unavailable(subscription_error)
             }
         };
         let _app_gone = sender.output(output);

@@ -1,7 +1,7 @@
 use std::{collections::HashSet, time::Duration};
 
 use bindrune_bluez::{
-    bluez_dbus_session::{BluetoothSession, DeviceLocation},
+    bluez_dbus_session::{BluezDbusSession, DeviceLocation},
     obex_file_transfer::{
         obex_incoming_push_agent::IncomingTransfer, obex_transfer_progress::TransferHandle,
     },
@@ -16,30 +16,30 @@ use relm4::{
 };
 
 use crate::{
-    background_application_lifecycle::gsettings_stored_preferences::AppPreferences,
+    background_application_lifecycle::gsettings_stored_preferences::GsettingsStoredPreferences,
     device_detail::file_transfer_group::ObexAvailability,
-    header_transfer_popover::file_transfer_progress_row::TransferRow,
+    header_transfer_popover::file_transfer_progress_row::FileTransferProgressRow,
 };
 
 const FINISHED_TRANSFER_LINGER: Duration = Duration::from_secs(60);
 
-pub struct TransfersInit {
-    pub session: BluetoothSession,
+pub struct FileTransferPopoverInit {
+    pub session: BluezDbusSession,
     pub obex: ObexAvailability,
-    pub preferences: AppPreferences,
+    pub preferences: GsettingsStoredPreferences,
     pub adapter_name: String,
 }
 
-pub struct TransfersPopover {
-    session: BluetoothSession,
-    preferences: AppPreferences,
+pub struct FileTransferPopover {
+    session: BluezDbusSession,
+    preferences: GsettingsStoredPreferences,
     adapter_name: String,
     accepted_senders: HashSet<bindrune_bluez::Address>,
-    transfer_rows: FactoryVecDeque<TransferRow>,
+    transfer_rows: FactoryVecDeque<FileTransferProgressRow>,
 }
 
 #[derive(Debug)]
-pub enum TransfersInput {
+pub enum FileTransferPopoverInput {
     TransfersStarted(Vec<TransferHandle>),
     AdapterSwitched(String),
     RowFinished(DynamicIndex),
@@ -67,7 +67,7 @@ impl TransferDecision {
 }
 
 #[derive(Debug)]
-pub enum TransfersOutput {
+pub enum FileTransferPopoverOutput {
     ReceivingFile { file_name: String },
     DecisionNeeded(SenderAssessment),
 }
@@ -80,20 +80,20 @@ pub struct SenderAssessment {
 }
 
 #[derive(Debug)]
-pub enum TransfersCommand {
+pub enum FileTransferPopoverCommand {
     Incoming(IncomingTransfer),
     SenderAssessed(SenderAssessment),
     RemoveFinishedRow(DynamicIndex),
 }
 
-impl TransfersPopover {
+impl FileTransferPopover {
     fn accept(&mut self, incoming_transfer: IncomingTransfer, sender: &ComponentSender<Self>) {
         let sender_address = incoming_transfer.sender_address;
         let file_name = incoming_transfer.file_name.clone();
         let transfer_handle = incoming_transfer.accept(self.preferences.received_files_folder());
         self.accepted_senders.insert(sender_address);
         self.transfer_rows.guard().push_back(transfer_handle);
-        let _app_gone = sender.output(TransfersOutput::ReceivingFile { file_name });
+        let _app_gone = sender.output(FileTransferPopoverOutput::ReceivingFile { file_name });
     }
 
     fn assess_sender(&self, incoming_transfer: IncomingTransfer, sender: &ComponentSender<Self>) {
@@ -104,7 +104,7 @@ impl TransfersPopover {
         };
         sender.oneshot_command(async move {
             let sender_snapshot = read_device(&session, &location).await;
-            TransfersCommand::SenderAssessed(SenderAssessment {
+            FileTransferPopoverCommand::SenderAssessed(SenderAssessment {
                 sender_name: sender_snapshot.as_ref().map_or_else(
                     |_unknown| location.address.to_string(),
                     |snapshot| snapshot.display_name().to_string(),
@@ -117,11 +117,11 @@ impl TransfersPopover {
 }
 
 #[relm4::component(pub)]
-impl Component for TransfersPopover {
-    type Init = TransfersInit;
-    type Input = TransfersInput;
-    type Output = TransfersOutput;
-    type CommandOutput = TransfersCommand;
+impl Component for FileTransferPopover {
+    type Init = FileTransferPopoverInit;
+    type Input = FileTransferPopoverInput;
+    type Output = FileTransferPopoverOutput;
+    type CommandOutput = FileTransferPopoverCommand;
 
     view! {
         gtk::MenuButton {
@@ -163,7 +163,7 @@ impl Component for TransfersPopover {
     ) -> ComponentParts<Self> {
         let transfer_rows = FactoryVecDeque::builder()
             .launch(gtk::ListBox::default())
-            .forward(sender.input_sender(), TransfersInput::RowFinished);
+            .forward(sender.input_sender(), FileTransferPopoverInput::RowFinished);
         let model = Self {
             session: transfers_init.session,
             preferences: transfers_init.preferences,
@@ -184,7 +184,8 @@ impl Component for TransfersPopover {
                         };
                         incoming_transfers
                             .for_each(|incoming_transfer| {
-                                command_output.emit(TransfersCommand::Incoming(incoming_transfer));
+                                command_output
+                                    .emit(FileTransferPopoverCommand::Incoming(incoming_transfer));
                                 futures::future::ready(())
                             })
                             .await;
@@ -198,14 +199,16 @@ impl Component for TransfersPopover {
 
     fn update(&mut self, input: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match input {
-            TransfersInput::TransfersStarted(transfer_handles) => {
+            FileTransferPopoverInput::TransfersStarted(transfer_handles) => {
                 let mut transfer_rows = self.transfer_rows.guard();
                 transfer_handles.into_iter().for_each(|transfer_handle| {
                     transfer_rows.push_back(transfer_handle);
                 });
             }
-            TransfersInput::AdapterSwitched(adapter_name) => self.adapter_name = adapter_name,
-            TransfersInput::Decided {
+            FileTransferPopoverInput::AdapterSwitched(adapter_name) => {
+                self.adapter_name = adapter_name
+            }
+            FileTransferPopoverInput::Decided {
                 incoming_transfer,
                 transfer_decision,
             } => match transfer_decision {
@@ -217,10 +220,10 @@ impl Component for TransfersPopover {
                     self.accept(incoming_transfer, &sender);
                 }
             },
-            TransfersInput::RowFinished(finished_index) => {
+            FileTransferPopoverInput::RowFinished(finished_index) => {
                 sender.oneshot_command(async move {
                     tokio::time::sleep(FINISHED_TRANSFER_LINGER).await;
-                    TransfersCommand::RemoveFinishedRow(finished_index)
+                    FileTransferPopoverCommand::RemoveFinishedRow(finished_index)
                 });
             }
         }
@@ -233,7 +236,7 @@ impl Component for TransfersPopover {
         _root: &Self::Root,
     ) {
         match command_output {
-            TransfersCommand::Incoming(incoming_transfer) => {
+            FileTransferPopoverCommand::Incoming(incoming_transfer) => {
                 if self
                     .accepted_senders
                     .contains(&incoming_transfer.sender_address)
@@ -243,7 +246,7 @@ impl Component for TransfersPopover {
                     self.assess_sender(incoming_transfer, &sender);
                 }
             }
-            TransfersCommand::SenderAssessed(assessment) => {
+            FileTransferPopoverCommand::SenderAssessed(assessment) => {
                 if assessment.bonded
                     && self
                         .preferences
@@ -252,10 +255,10 @@ impl Component for TransfersPopover {
                     self.accept(assessment.incoming_transfer, &sender);
                 } else {
                     let _main_view_gone =
-                        sender.output(TransfersOutput::DecisionNeeded(assessment));
+                        sender.output(FileTransferPopoverOutput::DecisionNeeded(assessment));
                 }
             }
-            TransfersCommand::RemoveFinishedRow(finished_index) => {
+            FileTransferPopoverCommand::RemoveFinishedRow(finished_index) => {
                 self.transfer_rows
                     .guard()
                     .remove(finished_index.current_index());

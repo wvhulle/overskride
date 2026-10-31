@@ -5,7 +5,7 @@ use futures::{FutureExt, Stream};
 use tokio::sync::{mpsc, oneshot};
 
 use crate::{
-    bluez_dbus_session::{BluetoothSession, DeviceLocation},
+    bluez_dbus_session::{BluezDbusSession, DeviceLocation},
     bluez_operation_error::BluetoothError,
 };
 
@@ -114,7 +114,7 @@ impl PairingRequest {
 
 #[derive(Clone)]
 struct RequestForwarder {
-    session: BluetoothSession,
+    session: BluezDbusSession,
     request_sender: mpsc::UnboundedSender<PairingRequest>,
     policy: AgentPolicy,
 }
@@ -279,7 +279,7 @@ fn build_agent(request_forwarder: &RequestForwarder) -> Agent {
 }
 
 pub async fn pairing_requests(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     policy: AgentPolicy,
 ) -> Result<impl Stream<Item = PairingRequest> + Send + 'static, BluetoothError> {
     let (request_sender, mut request_receiver) = mpsc::unbounded_channel();

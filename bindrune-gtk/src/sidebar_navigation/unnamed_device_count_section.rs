@@ -3,7 +3,7 @@ use relm4::{
     gtk::{gio, glib, prelude::*},
 };
 
-use crate::sidebar_navigation::sidebar_device_row_item::DeviceRowItem;
+use crate::sidebar_navigation::sidebar_device_row_item::SidebarDeviceRowItem;
 
 pub(super) const NAMED_ONLY_FILTER_INDEX: usize = 0;
 const NAMELESS_SECTION_TITLE: &str = "Without a Name";
@@ -17,7 +17,7 @@ const NAMELESS_SECTION_EXPLANATION: &str =
 fn row_has_meaningful_name(list_object: &glib::Object) -> bool {
     list_object
         .downcast_ref::<glib::BoxedAnyObject>()
-        .and_then(|boxed_row| boxed_row.try_borrow::<DeviceRowItem>().ok())
+        .and_then(|boxed_row| boxed_row.try_borrow::<SidebarDeviceRowItem>().ok())
         .is_some_and(|device_row| device_row.snapshot.has_meaningful_name())
 }
 

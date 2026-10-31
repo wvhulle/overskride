@@ -1,37 +1,41 @@
 use bindrune_bluez::{
     bluetooth_adapter::{
-        adapter_snapshot_and_discovery::AdapterSnapshot, adapter_udev_hardware::RadioDescription,
+        adapter_snapshot_and_discovery::AdapterSnapshot,
+        adapter_udev_hardware::AdapterHardwareDescription,
     },
-    bluez_dbus_session::BluetoothSession,
+    bluez_dbus_session::BluezDbusSession,
     bluez_operation_error::BluetoothError,
 };
 use relm4::{adw, adw::prelude::*, factory::FactoryVecDeque, gtk, prelude::*};
 
 use crate::{
-    background_application_lifecycle::gsettings_stored_preferences::AppPreferences,
+    background_application_lifecycle::gsettings_stored_preferences::GsettingsStoredPreferences,
     sidebar_navigation::{
         discovery_scan_toggle_row::{
             DiscoveryScanToggleRow, DiscoveryScanToggleRowInit, DiscoveryScanToggleRowInput,
         },
-        sidebar_adapter_row::{AdapterRow, AdapterRowInit},
-        sidebar_device_rows::{DeviceList, DeviceListInput, DeviceListOutput, DeviceListSource},
+        sidebar_adapter_row::{SidebarAdapterRow, SidebarAdapterRowInit},
+        sidebar_device_rows::{
+            SidebarDeviceRows, SidebarDeviceRowsInput, SidebarDeviceRowsOutput,
+            SidebarDeviceRowsSource,
+        },
     },
 };
 
 pub struct SidebarNavigationPageInit {
-    pub session: BluetoothSession,
-    pub preferences: AppPreferences,
-    pub radios: Vec<RadioDescription>,
+    pub session: BluezDbusSession,
+    pub preferences: GsettingsStoredPreferences,
+    pub radios: Vec<AdapterHardwareDescription>,
     pub adapter: AdapterSnapshot,
     pub transfers_button: gtk::MenuButton,
 }
 
 pub struct SidebarNavigationPage {
-    session: BluetoothSession,
-    preferences: AppPreferences,
+    session: BluezDbusSession,
+    preferences: GsettingsStoredPreferences,
     adapter: AdapterSnapshot,
-    device_list: Controller<DeviceList>,
-    adapter_rows: FactoryVecDeque<AdapterRow>,
+    device_list: Controller<SidebarDeviceRows>,
+    adapter_rows: FactoryVecDeque<SidebarAdapterRow>,
     scan_toggle_row: Controller<DiscoveryScanToggleRow>,
     device_list_slot: adw::Bin,
 }
@@ -43,7 +47,7 @@ pub enum SidebarNavigationPageInput {
     RefreshDevices,
     ShowUnnamedDevices(bool),
     StartScan,
-    DeviceListReported(DeviceListOutput),
+    DeviceListReported(SidebarDeviceRowsOutput),
     AdapterRowActivated(String),
     ScanFailed(BluetoothError),
     SettingsActivated,
@@ -53,18 +57,18 @@ pub enum SidebarNavigationPageInput {
 pub enum SidebarNavigationPageOutput {
     SettingsActivated,
     AdapterActivated(String),
-    DeviceListReported(DeviceListOutput),
+    DeviceListReported(SidebarDeviceRowsOutput),
     ScanFailed(BluetoothError),
 }
 
 fn launch_device_list(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     adapter_name: &str,
-    preferences: &AppPreferences,
+    preferences: &GsettingsStoredPreferences,
     sender: &ComponentSender<SidebarNavigationPage>,
-) -> Controller<DeviceList> {
-    DeviceList::builder()
-        .launch(DeviceListSource {
+) -> Controller<SidebarDeviceRows> {
+    SidebarDeviceRows::builder()
+        .launch(SidebarDeviceRowsSource {
             session: session.clone(),
             adapter_name: adapter_name.to_string(),
             show_unnamed_devices: preferences.show_unnamed_devices(),
@@ -185,7 +189,7 @@ impl Component for SidebarNavigationPage {
                 SidebarNavigationPageInput::AdapterRowActivated,
             );
         radios.iter().for_each(|radio| {
-            adapter_rows.guard().push_back(AdapterRowInit {
+            adapter_rows.guard().push_back(SidebarAdapterRowInit {
                 radio: radio.clone(),
                 active: radio.adapter_name == adapter.adapter_name,
             });
@@ -248,7 +252,9 @@ impl Component for SidebarNavigationPage {
             }
             SidebarNavigationPageInput::ShowUnnamedDevices(show_unnamed_devices) => {
                 self.device_list
-                    .emit(DeviceListInput::ShowUnnamedDevices(show_unnamed_devices));
+                    .emit(SidebarDeviceRowsInput::ShowUnnamedDevices(
+                        show_unnamed_devices,
+                    ));
                 return;
             }
             SidebarNavigationPageInput::StartScan => {

@@ -1,4 +1,4 @@
-use bindrune_bluez::bluetooth_adapter::adapter_udev_hardware::RadioDescription;
+use bindrune_bluez::bluetooth_adapter::adapter_udev_hardware::AdapterHardwareDescription;
 use relm4::{
     adw,
     adw::prelude::*,
@@ -7,19 +7,19 @@ use relm4::{
 };
 
 #[derive(Debug)]
-pub struct AdapterRow {
-    pub radio: RadioDescription,
+pub struct SidebarAdapterRow {
+    pub radio: AdapterHardwareDescription,
     pub active: bool,
 }
 
-pub struct AdapterRowInit {
-    pub radio: RadioDescription,
+pub struct SidebarAdapterRowInit {
+    pub radio: AdapterHardwareDescription,
     pub active: bool,
 }
 
 #[relm4::factory(pub)]
-impl FactoryComponent for AdapterRow {
-    type Init = AdapterRowInit;
+impl FactoryComponent for SidebarAdapterRow {
+    type Init = SidebarAdapterRowInit;
     type Input = ();
     type Output = String;
     type CommandOutput = ();

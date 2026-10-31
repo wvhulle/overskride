@@ -1,5 +1,5 @@
 use crate::{
-    bluetooth_adapter::adapter_udev_hardware::{RadioDescription, describe_radio},
+    bluetooth_adapter::adapter_udev_hardware::{AdapterHardwareDescription, describe_radio},
     bluez_operation_error::{BluetoothError, BluezFailure},
 };
 
@@ -10,24 +10,24 @@ pub struct DeviceLocation {
 }
 
 #[derive(Clone)]
-pub struct BluetoothSession {
+pub struct BluezDbusSession {
     bluez_session: bluer::Session,
 }
 
-impl std::fmt::Debug for BluetoothSession {
+impl std::fmt::Debug for BluezDbusSession {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("BluetoothSession")
+        formatter.write_str("BluezDbusSession")
     }
 }
 
-impl BluetoothSession {
+impl BluezDbusSession {
     pub async fn open() -> Result<Self, BluetoothError> {
         Ok(Self {
             bluez_session: bluer::Session::new().await?,
         })
     }
 
-    pub async fn radios(&self) -> Result<Vec<RadioDescription>, BluetoothError> {
+    pub async fn radios(&self) -> Result<Vec<AdapterHardwareDescription>, BluetoothError> {
         let mut adapter_names = self.bluez_session.adapter_names().await?;
         adapter_names.sort();
         Ok(adapter_names

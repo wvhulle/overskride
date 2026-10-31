@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use bindrune_bluez::{
     bluetooth_adapter::{
         adapter_snapshot_and_discovery::{AdapterSnapshot, read_adapter},
-        adapter_udev_hardware::RadioDescription,
+        adapter_udev_hardware::AdapterHardwareDescription,
     },
-    bluez_dbus_session::{BluetoothSession, DeviceLocation},
+    bluez_dbus_session::{BluezDbusSession, DeviceLocation},
     bluez_operation_error::BluetoothError,
     device_pairing::{
         pairing_agent_requests::{AgentPolicy, PairingRequest, pairing_requests},
@@ -23,23 +23,27 @@ use relm4::{adw, adw::prelude::*, gtk, prelude::*};
 
 use crate::{
     adapter_detail::adapter_detail_page::{
-        AdapterPage, AdapterPageInit, AdapterPageInput, AdapterPageOutput,
+        AdapterDetailPage, AdapterDetailPageInit, AdapterDetailPageInput, AdapterDetailPageOutput,
     },
-    application_preferences_page::AppSettingsPage,
+    application_preferences_page::ApplicationPreferencesPage,
     background_application_lifecycle::{
         application_menu_actions::{AnswerDialogAction, AppActionGroup, QuitAction},
-        gsettings_stored_preferences::{AppPreferences, PreferenceChange},
+        gsettings_stored_preferences::{GsettingsStoredPreferences, PreferenceChange},
         system_tray_menu::{TrayContent, TrayRequest},
     },
     device_detail::{
-        device_detail_page::{DevicePage, DevicePageInit, DevicePageInput, DevicePageOutput},
+        device_detail_page::{
+            DeviceDetailPage, DeviceDetailPageInit, DeviceDetailPageInput, DeviceDetailPageOutput,
+        },
         file_transfer_group::ObexAvailability,
     },
     header_transfer_popover::file_transfer_popover::{
-        TransfersInit, TransfersInput, TransfersOutput, TransfersPopover,
+        FileTransferPopover, FileTransferPopoverInit, FileTransferPopoverInput,
+        FileTransferPopoverOutput,
     },
     incoming_request_prompts::incoming_request_prompt_queue::{
-        PromptCenter, PromptCenterInput, PromptCenterOutput, PromptRequest, RequesterDescription,
+        IncomingRequestPromptQueue, IncomingRequestPromptQueueInput,
+        IncomingRequestPromptQueueOutput, PromptRequest, RequesterDescription,
         answer_from_notification_target,
     },
     sidebar_content_split::{
@@ -47,7 +51,7 @@ use crate::{
         tray_device_menu_sync::TrayDeviceMenuSync,
     },
     sidebar_navigation::{
-        sidebar_device_rows::DeviceListOutput,
+        sidebar_device_rows::SidebarDeviceRowsOutput,
         sidebar_navigation_page::{
             SidebarNavigationPage, SidebarNavigationPageInit, SidebarNavigationPageInput,
             SidebarNavigationPageOutput,
@@ -57,18 +61,18 @@ use crate::{
 
 const SETTINGS_TITLE: &str = "Settings";
 
-pub struct MainViewInit {
-    pub session: BluetoothSession,
+pub struct SidebarContentSplitViewInit {
+    pub session: BluezDbusSession,
     pub obex: ObexAvailability,
-    pub preferences: AppPreferences,
-    pub radios: Vec<RadioDescription>,
+    pub preferences: GsettingsStoredPreferences,
+    pub radios: Vec<AdapterHardwareDescription>,
     pub adapter: AdapterSnapshot,
 }
 
 enum ContentPage {
     AppSettings,
     Adapter,
-    Device(Controller<DevicePage>),
+    Device(Controller<DeviceDetailPage>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -78,11 +82,11 @@ pub enum AfterAdapterSwitch {
     StartScan,
 }
 
-pub struct MainView {
-    session: BluetoothSession,
+pub struct SidebarContentSplitView {
+    session: BluezDbusSession,
     obex: ObexAvailability,
-    preferences: AppPreferences,
-    radios: Vec<RadioDescription>,
+    preferences: GsettingsStoredPreferences,
+    radios: Vec<AdapterHardwareDescription>,
     adapter: AdapterSnapshot,
     device_names: HashMap<bindrune_bluez::Address, String>,
     tray_devices: TrayDeviceMenuSync,
@@ -91,35 +95,35 @@ pub struct MainView {
     content_title: String,
     split_view: adw::NavigationSplitView,
     sidebar: Controller<SidebarNavigationPage>,
-    adapter_page: Controller<AdapterPage>,
-    app_settings: Controller<AppSettingsPage>,
-    transfers: Controller<TransfersPopover>,
-    prompt_center: Controller<PromptCenter>,
+    adapter_page: Controller<AdapterDetailPage>,
+    app_settings: Controller<ApplicationPreferencesPage>,
+    transfers: Controller<FileTransferPopover>,
+    prompt_center: Controller<IncomingRequestPromptQueue>,
     content_slot: adw::Bin,
 }
 
 #[derive(Debug)]
-pub enum MainViewInput {
+pub enum SidebarContentSplitViewInput {
     ScanFailed(BluetoothError),
     AdapterActivated(String),
     ShowAppSettings,
     RefreshDevices,
     PreferenceChanged(PreferenceChange),
-    DeviceList(DeviceListOutput),
-    DevicePage(DevicePageOutput),
-    AdapterPage(AdapterPageOutput),
-    Transfers(TransfersOutput),
-    PromptCenter(PromptCenterOutput),
+    SidebarDeviceRows(SidebarDeviceRowsOutput),
+    DeviceDetailPage(DeviceDetailPageOutput),
+    AdapterDetailPage(AdapterDetailPageOutput),
+    Transfers(FileTransferPopoverOutput),
+    IncomingRequestPromptQueue(IncomingRequestPromptQueueOutput),
     Tray(TrayRequest),
 }
 
 #[derive(Debug)]
-pub enum MainViewOutput {
+pub enum SidebarContentSplitViewOutput {
     TrayContentChanged(TrayContent),
 }
 
 #[derive(Debug)]
-pub enum MainViewCommand {
+pub enum SidebarContentSplitViewCommand {
     PairingRequest(PairingRequest),
     AdapterLoaded {
         outcome: Result<AdapterSnapshot, BluetoothError>,
@@ -131,19 +135,22 @@ pub enum MainViewCommand {
 }
 
 fn launch_adapter_page(
-    session: &BluetoothSession,
+    session: &BluezDbusSession,
     adapter: &AdapterSnapshot,
-    sender: &ComponentSender<MainView>,
-) -> Controller<AdapterPage> {
-    AdapterPage::builder()
-        .launch(AdapterPageInit {
+    sender: &ComponentSender<SidebarContentSplitView>,
+) -> Controller<AdapterDetailPage> {
+    AdapterDetailPage::builder()
+        .launch(AdapterDetailPageInit {
             session: session.clone(),
             adapter: adapter.clone(),
         })
-        .forward(sender.input_sender(), MainViewInput::AdapterPage)
+        .forward(
+            sender.input_sender(),
+            SidebarContentSplitViewInput::AdapterDetailPage,
+        )
 }
 
-impl MainView {
+impl SidebarContentSplitView {
     fn radio_label(&self, adapter_name: &str) -> String {
         self.radios
             .iter()
@@ -182,8 +189,8 @@ impl MainView {
             self.reveal_content();
             return;
         }
-        let device_page = DevicePage::builder()
-            .launch(DevicePageInit {
+        let device_page = DeviceDetailPage::builder()
+            .launch(DeviceDetailPageInit {
                 session: self.session.clone(),
                 obex: self.obex.clone(),
                 adapter_address: self.adapter.address,
@@ -192,7 +199,10 @@ impl MainView {
                 received_files_folder: self.preferences.received_files_folder(),
                 snapshot,
             })
-            .forward(sender.input_sender(), MainViewInput::DevicePage);
+            .forward(
+                sender.input_sender(),
+                SidebarContentSplitViewInput::DeviceDetailPage,
+            );
         self.content_slot.set_child(Some(&**device_page.widget()));
         self.content_page = ContentPage::Device(device_page);
         self.reveal_content();
@@ -210,7 +220,7 @@ impl MainView {
     ) {
         let session = self.session.clone();
         sender.oneshot_command(async move {
-            MainViewCommand::AdapterLoaded {
+            SidebarContentSplitViewCommand::AdapterLoaded {
                 outcome: read_adapter(&session, &adapter_name).await,
                 after_switch,
             }
@@ -225,9 +235,10 @@ impl MainView {
         self.preferences
             .remember_adapter_name(&adapter.adapter_name);
         self.adapter_page = launch_adapter_page(&self.session, &adapter, sender);
-        self.transfers.emit(TransfersInput::AdapterSwitched(
-            adapter.adapter_name.clone(),
-        ));
+        self.transfers
+            .emit(FileTransferPopoverInput::AdapterSwitched(
+                adapter.adapter_name.clone(),
+            ));
         self.device_names.clear();
         self.tray_devices.forget_all_devices();
         self.adapter = adapter;
@@ -237,29 +248,29 @@ impl MainView {
 
     fn handle_device_list_output(
         &mut self,
-        device_list_output: DeviceListOutput,
+        device_list_output: SidebarDeviceRowsOutput,
         root: &adw::ToastOverlay,
         sender: &ComponentSender<Self>,
     ) {
         match device_list_output {
-            DeviceListOutput::Opened(snapshot) => self.open_device(snapshot, sender),
-            DeviceListOutput::Changed(device_change) => {
+            SidebarDeviceRowsOutput::Opened(snapshot) => self.open_device(snapshot, sender),
+            SidebarDeviceRowsOutput::Changed(device_change) => {
                 self.remember_connection_state(&device_change);
                 self.tray_devices.remember_device_change(&device_change);
                 self.publish_tray_content(sender);
                 self.forward_device_change(device_change);
             }
-            DeviceListOutput::ShowUnnamedRequested => {
+            SidebarDeviceRowsOutput::ShowUnnamedRequested => {
                 self.preferences.set_show_unnamed_devices(true);
             }
-            DeviceListOutput::Unavailable(subscription_error) => {
+            SidebarDeviceRowsOutput::Unavailable(subscription_error) => {
                 root.add_toast(adw::Toast::new(&subscription_error.to_string()));
             }
         }
     }
 
     fn publish_tray_content(&self, sender: &ComponentSender<Self>) {
-        let _app_window_gone = sender.output(MainViewOutput::TrayContentChanged(
+        let _app_window_gone = sender.output(SidebarContentSplitViewOutput::TrayContentChanged(
             self.tray_devices.tray_content(&self.adapter),
         ));
     }
@@ -268,11 +279,11 @@ impl MainView {
         match tray_request {
             TrayRequest::SetPowered(powered) => {
                 self.adapter_page
-                    .emit(AdapterPageInput::PoweredToggled(powered));
+                    .emit(AdapterDetailPageInput::PoweredToggled(powered));
             }
             TrayRequest::SetVisibleForPairing(visible_for_pairing) => {
                 self.adapter_page
-                    .emit(AdapterPageInput::VisibleForPairingToggled(
+                    .emit(AdapterDetailPageInput::VisibleForPairingToggled(
                         visible_for_pairing,
                     ));
             }
@@ -283,7 +294,7 @@ impl MainView {
                     address,
                 };
                 sender.oneshot_command(async move {
-                    MainViewCommand::TrayConnectionChanged(if connected {
+                    SidebarContentSplitViewCommand::TrayConnectionChanged(if connected {
                         connect_device(&session, &location).await
                     } else {
                         disconnect_device(&session, &location).await
@@ -313,7 +324,7 @@ impl MainView {
             return;
         }
         if let ContentPage::Device(device_page) = &self.content_page {
-            device_page.emit(DevicePageInput::ConnectionHistoryChanged(
+            device_page.emit(DeviceDetailPageInput::ConnectionHistoryChanged(
                 changed_history.connection_history,
             ));
         }
@@ -337,7 +348,7 @@ impl MainView {
                 }
                 self.content_title = snapshot.display_name().to_string();
                 if let ContentPage::Device(device_page) = &self.content_page {
-                    device_page.emit(DevicePageInput::DeviceChanged(snapshot));
+                    device_page.emit(DeviceDetailPageInput::DeviceChanged(snapshot));
                 }
             }
             DeviceChange::Disappeared(address) => {
@@ -351,15 +362,15 @@ impl MainView {
 
     fn handle_device_page_output(
         &mut self,
-        device_page_output: DevicePageOutput,
+        device_page_output: DeviceDetailPageOutput,
         root: &adw::ToastOverlay,
         sender: &ComponentSender<Self>,
     ) {
         match device_page_output {
-            DevicePageOutput::Failed(failure) => {
+            DeviceDetailPageOutput::Failed(failure) => {
                 root.add_toast(adw::Toast::new(&failure.to_string()));
             }
-            DevicePageOutput::Forgotten { hint, rescan } => {
+            DeviceDetailPageOutput::Forgotten { hint, rescan } => {
                 if let (false, Some(forgotten_address)) = (rescan, self.shown_device_address()) {
                     self.preferences.revoke_auto_accept(forgotten_address);
                 }
@@ -369,7 +380,7 @@ impl MainView {
                     self.start_scan();
                 }
             }
-            DevicePageOutput::AutoAcceptChosen {
+            DeviceDetailPageOutput::AutoAcceptChosen {
                 address,
                 accepts_files,
             } => {
@@ -379,7 +390,7 @@ impl MainView {
                     self.preferences.revoke_auto_accept(address);
                 }
             }
-            DevicePageOutput::ShowRadio(adapter_name) => {
+            DeviceDetailPageOutput::ShowRadio(adapter_name) => {
                 if let Some(shown_address) = self.shown_device_address() {
                     self.switch_adapter(
                         adapter_name,
@@ -388,23 +399,23 @@ impl MainView {
                     );
                 }
             }
-            DevicePageOutput::PairViaRadio(adapter_name) => {
+            DeviceDetailPageOutput::PairViaRadio(adapter_name) => {
                 self.switch_adapter(adapter_name, AfterAdapterSwitch::StartScan, sender);
             }
-            DevicePageOutput::TransfersStarted(transfer_handles) => {
+            DeviceDetailPageOutput::TransfersStarted(transfer_handles) => {
                 self.transfers
-                    .emit(TransfersInput::TransfersStarted(transfer_handles));
+                    .emit(FileTransferPopoverInput::TransfersStarted(transfer_handles));
             }
         }
     }
 }
 
 #[relm4::component(pub)]
-impl Component for MainView {
-    type Init = MainViewInit;
-    type Input = MainViewInput;
-    type Output = MainViewOutput;
-    type CommandOutput = MainViewCommand;
+impl Component for SidebarContentSplitView {
+    type Init = SidebarContentSplitViewInit;
+    type Input = SidebarContentSplitViewInput;
+    type Output = SidebarContentSplitViewOutput;
+    type CommandOutput = SidebarContentSplitViewCommand;
 
     view! {
         adw::ToastOverlay {
@@ -455,7 +466,7 @@ impl Component for MainView {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let MainViewInit {
+        let SidebarContentSplitViewInit {
             session,
             obex,
             preferences,
@@ -463,12 +474,13 @@ impl Component for MainView {
             adapter,
         } = view_init;
         let adapter_page = launch_adapter_page(&session, &adapter, &sender);
-        let app_settings = AppSettingsPage::builder()
+        let app_settings = ApplicationPreferencesPage::builder()
             .launch(preferences.clone())
             .detach();
-        let prompt_center = PromptCenter::builder()
-            .launch(())
-            .forward(sender.input_sender(), MainViewInput::PromptCenter);
+        let prompt_center = IncomingRequestPromptQueue::builder().launch(()).forward(
+            sender.input_sender(),
+            SidebarContentSplitViewInput::IncomingRequestPromptQueue,
+        );
         let prompt_center_sender = prompt_center.sender().clone();
         let answer_dialog_action: relm4::actions::RelmAction<AnswerDialogAction> =
             relm4::actions::RelmAction::new_with_target_value(
@@ -479,14 +491,17 @@ impl Component for MainView {
         let mut prompt_actions = relm4::actions::RelmActionGroup::<AppActionGroup>::new();
         prompt_actions.add_action(answer_dialog_action);
         prompt_actions.register_for_main_application();
-        let transfers = TransfersPopover::builder()
-            .launch(TransfersInit {
+        let transfers = FileTransferPopover::builder()
+            .launch(FileTransferPopoverInit {
                 session: session.clone(),
                 obex: obex.clone(),
                 preferences: preferences.clone(),
                 adapter_name: adapter.adapter_name.clone(),
             })
-            .forward(sender.input_sender(), MainViewInput::Transfers);
+            .forward(
+                sender.input_sender(),
+                SidebarContentSplitViewInput::Transfers,
+            );
         let content_slot = adw::Bin::new();
         let sidebar = SidebarNavigationPage::builder()
             .launch(SidebarNavigationPageInit {
@@ -500,16 +515,16 @@ impl Component for MainView {
                 sender.input_sender(),
                 |sidebar_output| match sidebar_output {
                     SidebarNavigationPageOutput::SettingsActivated => {
-                        MainViewInput::ShowAppSettings
+                        SidebarContentSplitViewInput::ShowAppSettings
                     }
                     SidebarNavigationPageOutput::AdapterActivated(adapter_name) => {
-                        MainViewInput::AdapterActivated(adapter_name)
+                        SidebarContentSplitViewInput::AdapterActivated(adapter_name)
                     }
                     SidebarNavigationPageOutput::DeviceListReported(device_list_output) => {
-                        MainViewInput::DeviceList(device_list_output)
+                        SidebarContentSplitViewInput::SidebarDeviceRows(device_list_output)
                     }
                     SidebarNavigationPageOutput::ScanFailed(scan_error) => {
-                        MainViewInput::ScanFailed(scan_error)
+                        SidebarContentSplitViewInput::ScanFailed(scan_error)
                     }
                 },
             );
@@ -517,7 +532,9 @@ impl Component for MainView {
 
         let preference_sender = sender.input_sender().clone();
         preferences.connect_preference_changes(move |preference_change| {
-            preference_sender.emit(MainViewInput::PreferenceChanged(preference_change));
+            preference_sender.emit(SidebarContentSplitViewInput::PreferenceChanged(
+                preference_change,
+            ));
         });
 
         sender.command(|command_output, shutdown| {
@@ -528,8 +545,9 @@ impl Component for MainView {
                     };
                     drops
                         .for_each(|connection_drop| {
-                            command_output
-                                .emit(MainViewCommand::ConnectionDropped(connection_drop));
+                            command_output.emit(SidebarContentSplitViewCommand::ConnectionDropped(
+                                connection_drop,
+                            ));
                             futures::future::ready(())
                         })
                         .await;
@@ -549,7 +567,9 @@ impl Component for MainView {
                     };
                     requests
                         .for_each(|pairing_request| {
-                            command_output.emit(MainViewCommand::PairingRequest(pairing_request));
+                            command_output.emit(SidebarContentSplitViewCommand::PairingRequest(
+                                pairing_request,
+                            ));
                             futures::future::ready(())
                         })
                         .await;
@@ -584,13 +604,14 @@ impl Component for MainView {
         let refresh_sender = sender.input_sender().clone();
         let refresh_action: relm4::actions::RelmAction<RefreshDevicesAction> =
             relm4::actions::RelmAction::new_stateless(move |_refresh_action| {
-                refresh_sender.emit(MainViewInput::RefreshDevices);
+                refresh_sender.emit(SidebarContentSplitViewInput::RefreshDevices);
             });
         let about_action: relm4::actions::RelmAction<AboutAction> =
             relm4::actions::RelmAction::new_stateless(|_about_action| {
                 crate::background_application_lifecycle::application_menu_actions::show_about()
             });
-        let mut window_actions = relm4::actions::RelmActionGroup::<MainViewActionGroup>::new();
+        let mut window_actions =
+            relm4::actions::RelmActionGroup::<SidebarContentSplitActionGroup>::new();
         window_actions.add_action(refresh_action);
         window_actions.add_action(about_action);
         window_actions.register_for_widget(&root);
@@ -601,10 +622,10 @@ impl Component for MainView {
 
     fn update(&mut self, input: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match input {
-            MainViewInput::ScanFailed(scan_error) => {
+            SidebarContentSplitViewInput::ScanFailed(scan_error) => {
                 root.add_toast(adw::Toast::new(&scan_error.to_string()));
             }
-            MainViewInput::AdapterActivated(adapter_name) => {
+            SidebarContentSplitViewInput::AdapterActivated(adapter_name) => {
                 if adapter_name == self.adapter.adapter_name {
                     self.show_adapter_page();
                 } else {
@@ -612,69 +633,83 @@ impl Component for MainView {
                 }
                 self.reveal_content();
             }
-            MainViewInput::ShowAppSettings => {
+            SidebarContentSplitViewInput::ShowAppSettings => {
                 self.show_app_settings();
                 self.reveal_content();
             }
-            MainViewInput::RefreshDevices => {
+            SidebarContentSplitViewInput::RefreshDevices => {
                 self.sidebar
                     .emit(SidebarNavigationPageInput::RefreshDevices);
             }
-            MainViewInput::PreferenceChanged(PreferenceChange::AutoAcceptSenders) => {
+            SidebarContentSplitViewInput::PreferenceChanged(
+                PreferenceChange::AutoAcceptSenders,
+            ) => {
                 if let ContentPage::Device(device_page) = &self.content_page {
                     let accepts_files = self
                         .preferences
                         .accepts_files_from(device_page.model().shown_address());
-                    device_page.emit(DevicePageInput::AutoAcceptChanged(accepts_files));
+                    device_page.emit(DeviceDetailPageInput::AutoAcceptChanged(accepts_files));
                 }
             }
-            MainViewInput::PreferenceChanged(PreferenceChange::ShowUnnamedDevices(
-                show_unnamed_devices,
-            )) => {
+            SidebarContentSplitViewInput::PreferenceChanged(
+                PreferenceChange::ShowUnnamedDevices(show_unnamed_devices),
+            ) => {
                 self.sidebar
                     .emit(SidebarNavigationPageInput::ShowUnnamedDevices(
                         show_unnamed_devices,
                     ));
             }
-            MainViewInput::PreferenceChanged(
+            SidebarContentSplitViewInput::PreferenceChanged(
                 PreferenceChange::RunInBackground(_)
                 | PreferenceChange::StartAtLogin(_)
                 | PreferenceChange::Unrelated,
             ) => {}
-            MainViewInput::DeviceList(device_list_output) => {
+            SidebarContentSplitViewInput::SidebarDeviceRows(device_list_output) => {
                 self.handle_device_list_output(device_list_output, root, &sender);
             }
-            MainViewInput::DevicePage(device_page_output) => {
+            SidebarContentSplitViewInput::DeviceDetailPage(device_page_output) => {
                 self.handle_device_page_output(device_page_output, root, &sender);
             }
-            MainViewInput::AdapterPage(AdapterPageOutput::Failed(failure)) => {
+            SidebarContentSplitViewInput::AdapterDetailPage(AdapterDetailPageOutput::Failed(
+                failure,
+            )) => {
                 root.add_toast(adw::Toast::new(&failure.to_string()));
             }
-            MainViewInput::Transfers(TransfersOutput::DecisionNeeded(assessment)) => {
+            SidebarContentSplitViewInput::Transfers(FileTransferPopoverOutput::DecisionNeeded(
+                assessment,
+            )) => {
                 self.prompt_center
-                    .emit(PromptCenterInput::Requested(PromptRequest::Transfer(
-                        assessment,
-                    )));
+                    .emit(IncomingRequestPromptQueueInput::Requested(
+                        PromptRequest::Transfer(assessment),
+                    ));
             }
-            MainViewInput::PromptCenter(PromptCenterOutput::TransferDecided {
-                incoming_transfer,
-                transfer_decision,
-            }) => {
-                self.transfers.emit(TransfersInput::Decided {
+            SidebarContentSplitViewInput::IncomingRequestPromptQueue(
+                IncomingRequestPromptQueueOutput::TransferDecided {
+                    incoming_transfer,
+                    transfer_decision,
+                },
+            ) => {
+                self.transfers.emit(FileTransferPopoverInput::Decided {
                     incoming_transfer,
                     transfer_decision,
                 });
             }
-            MainViewInput::Transfers(TransfersOutput::ReceivingFile { file_name }) => {
+            SidebarContentSplitViewInput::Transfers(FileTransferPopoverOutput::ReceivingFile {
+                file_name,
+            }) => {
                 root.add_toast(adw::Toast::new(&format!("Receiving {file_name}")));
             }
-            MainViewInput::AdapterPage(AdapterPageOutput::AdapterChanged(adapter)) => {
+            SidebarContentSplitViewInput::AdapterDetailPage(
+                AdapterDetailPageOutput::AdapterChanged(adapter),
+            ) => {
                 self.sidebar
                     .emit(SidebarNavigationPageInput::AdapterChanged(adapter.clone()));
                 self.adapter = adapter;
                 self.publish_tray_content(&sender);
             }
-            MainViewInput::Tray(tray_request) => self.handle_tray_request(tray_request, &sender),
+            SidebarContentSplitViewInput::Tray(tray_request) => {
+                self.handle_tray_request(tray_request, &sender)
+            }
         }
     }
 
@@ -685,7 +720,7 @@ impl Component for MainView {
         root: &Self::Root,
     ) {
         match command_output {
-            MainViewCommand::PairingRequest(pairing_request) => {
+            SidebarContentSplitViewCommand::PairingRequest(pairing_request) => {
                 let requester = pairing_request.requester();
                 let requester_description = RequesterDescription {
                     device_name: self
@@ -696,12 +731,14 @@ impl Component for MainView {
                     radio_label: self.radio_label(&requester.adapter_name),
                 };
                 self.prompt_center
-                    .emit(PromptCenterInput::Requested(PromptRequest::Pairing {
-                        pairing_request,
-                        requester: requester_description,
-                    }));
+                    .emit(IncomingRequestPromptQueueInput::Requested(
+                        PromptRequest::Pairing {
+                            pairing_request,
+                            requester: requester_description,
+                        },
+                    ));
             }
-            MainViewCommand::AdapterLoaded {
+            SidebarContentSplitViewCommand::AdapterLoaded {
                 outcome,
                 after_switch,
             } => match outcome {
@@ -718,18 +755,22 @@ impl Component for MainView {
                                 address,
                             };
                             sender.oneshot_command(async move {
-                                MainViewCommand::DeviceRead(read_device(&session, &location).await)
+                                SidebarContentSplitViewCommand::DeviceRead(
+                                    read_device(&session, &location).await,
+                                )
                             });
                         }
                     }
                 }
                 Err(adapter_error) => root.add_toast(adw::Toast::new(&adapter_error.to_string())),
             },
-            MainViewCommand::DeviceRead(Ok(snapshot)) => self.open_device(snapshot, &sender),
-            MainViewCommand::DeviceRead(Err(read_error)) => {
+            SidebarContentSplitViewCommand::DeviceRead(Ok(snapshot)) => {
+                self.open_device(snapshot, &sender)
+            }
+            SidebarContentSplitViewCommand::DeviceRead(Err(read_error)) => {
                 root.add_toast(adw::Toast::new(&read_error.to_string()));
             }
-            MainViewCommand::ConnectionDropped(connection_drop) => {
+            SidebarContentSplitViewCommand::ConnectionDropped(connection_drop) => {
                 if connection_drop.adapter_name == self.adapter.adapter_name {
                     let changed_history = self
                         .connection_histories
@@ -737,14 +778,14 @@ impl Component for MainView {
                     self.show_changed_connection_history(changed_history);
                 }
             }
-            MainViewCommand::TrayConnectionChanged(Ok(())) => {}
-            MainViewCommand::TrayConnectionChanged(Err(connection_failure)) => {
+            SidebarContentSplitViewCommand::TrayConnectionChanged(Ok(())) => {}
+            SidebarContentSplitViewCommand::TrayConnectionChanged(Err(connection_failure)) => {
                 root.add_toast(adw::Toast::new(&connection_failure.to_string()));
             }
         }
     }
 }
 
-relm4::new_action_group!(pub MainViewActionGroup, "win");
-relm4::new_stateless_action!(pub RefreshDevicesAction, MainViewActionGroup, "refresh-devices");
-relm4::new_stateless_action!(pub AboutAction, MainViewActionGroup, "about");
+relm4::new_action_group!(pub SidebarContentSplitActionGroup, "win");
+relm4::new_stateless_action!(pub RefreshDevicesAction, SidebarContentSplitActionGroup, "refresh-devices");
+relm4::new_stateless_action!(pub AboutAction, SidebarContentSplitActionGroup, "about");

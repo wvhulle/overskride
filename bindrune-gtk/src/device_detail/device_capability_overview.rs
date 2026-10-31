@@ -18,7 +18,7 @@ pub struct CapabilitySources {
 }
 
 #[derive(Debug)]
-pub enum CapabilityOverviewInput {
+pub enum DeviceCapabilityOverviewInput {
     SourcesChanged(CapabilitySources),
 }
 
@@ -27,7 +27,7 @@ pub enum CapabilitySourcesInput {
     SourcesChanged(CapabilitySources),
 }
 
-pub struct CapabilityOverview {
+pub struct DeviceCapabilityOverview {
     sources: CapabilitySources,
     sections: FactoryVecDeque<CapabilitySection>,
 }
@@ -237,9 +237,9 @@ impl FactoryComponent for CapabilitySection {
 }
 
 #[relm4::component(pub)]
-impl SimpleComponent for CapabilityOverview {
+impl SimpleComponent for DeviceCapabilityOverview {
     type Init = CapabilitySources;
-    type Input = CapabilityOverviewInput;
+    type Input = DeviceCapabilityOverviewInput;
     type Output = ();
 
     view! {
@@ -279,7 +279,7 @@ impl SimpleComponent for CapabilityOverview {
 
     fn update(&mut self, input: Self::Input, _sender: ComponentSender<Self>) {
         match input {
-            CapabilityOverviewInput::SourcesChanged(sources) => {
+            DeviceCapabilityOverviewInput::SourcesChanged(sources) => {
                 if sources != self.sources {
                     self.sections
                         .broadcast(CapabilitySourcesInput::SourcesChanged(sources.clone()));

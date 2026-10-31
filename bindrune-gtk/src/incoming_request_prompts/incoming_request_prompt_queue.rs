@@ -43,7 +43,7 @@ pub enum ResponseSource {
 }
 
 #[derive(Debug)]
-pub enum PromptCenterInput {
+pub enum IncomingRequestPromptQueueInput {
     Requested(PromptRequest),
     Responded {
         prompt_identifier: u64,
@@ -53,7 +53,7 @@ pub enum PromptCenterInput {
 }
 
 #[derive(Debug)]
-pub enum PromptCenterOutput {
+pub enum IncomingRequestPromptQueueOutput {
     TransferDecided {
         incoming_transfer: IncomingTransfer,
         transfer_decision: TransferDecision,
@@ -61,7 +61,7 @@ pub enum PromptCenterOutput {
 }
 
 #[derive(Debug)]
-pub enum PromptCenterCommand {
+pub enum IncomingRequestPromptQueueCommand {
     Expired(u64),
 }
 
@@ -70,12 +70,12 @@ struct PendingPrompt {
     answer: PromptAnswer,
 }
 
-pub struct PromptCenter {
+pub struct IncomingRequestPromptQueue {
     pending_prompts: BTreeMap<u64, PendingPrompt>,
     next_prompt_identifier: u64,
 }
 
-impl PromptCenter {
+impl IncomingRequestPromptQueue {
     fn present_prompt(&mut self, prompt_draft: PromptDraft, sender: &ComponentSender<Self>) {
         let prompt_identifier = self.next_prompt_identifier;
         self.next_prompt_identifier += 1;
@@ -89,7 +89,7 @@ impl PromptCenter {
         }
         let response_sender = sender.input_sender().clone();
         dialog.connect_response(None, move |_answered_dialog, response_id| {
-            response_sender.emit(PromptCenterInput::Responded {
+            response_sender.emit(IncomingRequestPromptQueueInput::Responded {
                 prompt_identifier,
                 response_id: response_id.to_string(),
                 response_source: ResponseSource::Dialog,
@@ -113,7 +113,7 @@ impl PromptCenter {
         if prompt_draft.expiry == PromptExpiry::AfterServiceTimeout {
             sender.oneshot_command(async move {
                 tokio::time::sleep(SERVICE_AUTHORIZATION_TIMEOUT).await;
-                PromptCenterCommand::Expired(prompt_identifier)
+                IncomingRequestPromptQueueCommand::Expired(prompt_identifier)
             });
         }
         self.pending_prompts.insert(
@@ -166,10 +166,11 @@ impl PromptCenter {
                 service_request.answer(service_authorization_answer(response_id));
             }
             PromptAnswer::Transfer(incoming_transfer) => {
-                let _main_view_gone = sender.output(PromptCenterOutput::TransferDecided {
-                    incoming_transfer,
-                    transfer_decision: TransferDecision::from_response(response_id),
-                });
+                let _main_view_gone =
+                    sender.output(IncomingRequestPromptQueueOutput::TransferDecided {
+                        incoming_transfer,
+                        transfer_decision: TransferDecision::from_response(response_id),
+                    });
             }
             PromptAnswer::PinCode { .. }
             | PromptAnswer::Passkey { .. }
@@ -179,11 +180,11 @@ impl PromptCenter {
     }
 }
 
-impl Component for PromptCenter {
+impl Component for IncomingRequestPromptQueue {
     type Init = ();
-    type Input = PromptCenterInput;
-    type Output = PromptCenterOutput;
-    type CommandOutput = PromptCenterCommand;
+    type Input = IncomingRequestPromptQueueInput;
+    type Output = IncomingRequestPromptQueueOutput;
+    type CommandOutput = IncomingRequestPromptQueueCommand;
     type Root = gtk::Box;
     type Widgets = ();
 
@@ -207,14 +208,14 @@ impl Component for PromptCenter {
 
     fn update(&mut self, input: Self::Input, sender: ComponentSender<Self>, _root: &Self::Root) {
         match input {
-            PromptCenterInput::Requested(PromptRequest::Pairing {
+            IncomingRequestPromptQueueInput::Requested(PromptRequest::Pairing {
                 pairing_request,
                 requester,
             }) => self.present_prompt(draft_pairing_prompt(pairing_request, &requester), &sender),
-            PromptCenterInput::Requested(PromptRequest::Transfer(assessment)) => {
+            IncomingRequestPromptQueueInput::Requested(PromptRequest::Transfer(assessment)) => {
                 self.present_prompt(draft_transfer_prompt(assessment), &sender);
             }
-            PromptCenterInput::Responded {
+            IncomingRequestPromptQueueInput::Responded {
                 prompt_identifier,
                 response_id,
                 response_source,
@@ -234,7 +235,7 @@ impl Component for PromptCenter {
         _root: &Self::Root,
     ) {
         match command_output {
-            PromptCenterCommand::Expired(prompt_identifier) => {
+            IncomingRequestPromptQueueCommand::Expired(prompt_identifier) => {
                 let _expired_answer =
                     self.dismiss_prompt(prompt_identifier, ResponseSource::Timeout);
             }
@@ -243,10 +244,10 @@ impl Component for PromptCenter {
 }
 
 pub fn answer_from_notification_target(
-    prompt_center_sender: &relm4::Sender<PromptCenterInput>,
+    prompt_center_sender: &relm4::Sender<IncomingRequestPromptQueueInput>,
     (prompt_identifier, response_id): (u64, String),
 ) {
-    prompt_center_sender.emit(PromptCenterInput::Responded {
+    prompt_center_sender.emit(IncomingRequestPromptQueueInput::Responded {
         prompt_identifier,
         response_id,
         response_source: ResponseSource::Notification,

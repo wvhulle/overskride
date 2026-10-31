@@ -18,7 +18,7 @@ enum FinishReport {
 }
 
 #[derive(Debug)]
-pub struct TransferRow {
+pub struct FileTransferProgressRow {
     transfer_handle: TransferHandle,
     progress: TransferProgress,
     row_index: DynamicIndex,
@@ -26,12 +26,12 @@ pub struct TransferRow {
 }
 
 #[derive(Debug)]
-pub enum TransferRowInput {
+pub enum FileTransferProgressRowInput {
     Cancel,
 }
 
 #[derive(Debug)]
-pub enum TransferRowCommand {
+pub enum FileTransferProgressRowCommand {
     Progress(TransferProgress),
     Cancelled,
 }
@@ -56,11 +56,11 @@ fn completed_fraction(progress: TransferProgress) -> f64 {
 }
 
 #[relm4::factory(pub)]
-impl FactoryComponent for TransferRow {
+impl FactoryComponent for FileTransferProgressRow {
     type Init = TransferHandle;
-    type Input = TransferRowInput;
+    type Input = FileTransferProgressRowInput;
     type Output = DynamicIndex;
-    type CommandOutput = TransferRowCommand;
+    type CommandOutput = FileTransferProgressRowCommand;
     type ParentWidget = gtk::ListBox;
 
     view! {
@@ -84,7 +84,7 @@ impl FactoryComponent for TransferRow {
                 add_css_class: "flat",
                 #[watch]
                 set_visible: !matches!(self.progress.status, TransferStatus::Complete | TransferStatus::Failed),
-                connect_clicked => TransferRowInput::Cancel,
+                connect_clicked => FileTransferProgressRowInput::Cancel,
             },
         }
     }
@@ -103,7 +103,7 @@ impl FactoryComponent for TransferRow {
                     };
                     progress_updates
                         .for_each(|progress| {
-                            command_output.emit(TransferRowCommand::Progress(progress));
+                            command_output.emit(FileTransferProgressRowCommand::Progress(progress));
                             futures::future::ready(())
                         })
                         .await;
@@ -124,11 +124,11 @@ impl FactoryComponent for TransferRow {
 
     fn update(&mut self, input: Self::Input, sender: FactorySender<Self>) {
         match input {
-            TransferRowInput::Cancel => {
+            FileTransferProgressRowInput::Cancel => {
                 let cancelled_handle = self.transfer_handle.clone();
                 sender.oneshot_command(async move {
                     let _already_finished = cancelled_handle.cancel().await;
-                    TransferRowCommand::Cancelled
+                    FileTransferProgressRowCommand::Cancelled
                 });
             }
         }
@@ -136,8 +136,8 @@ impl FactoryComponent for TransferRow {
 
     fn update_cmd(&mut self, command_output: Self::CommandOutput, sender: FactorySender<Self>) {
         match command_output {
-            TransferRowCommand::Progress(progress) => self.progress = progress,
-            TransferRowCommand::Cancelled => {
+            FileTransferProgressRowCommand::Progress(progress) => self.progress = progress,
+            FileTransferProgressRowCommand::Cancelled => {
                 self.progress = TransferProgress {
                     status: TransferStatus::Failed,
                     ..self.progress
