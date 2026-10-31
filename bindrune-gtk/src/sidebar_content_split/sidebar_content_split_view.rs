@@ -1,13 +1,8 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    time::{Duration, Instant},
-};
+use std::collections::HashMap;
 
 use bindrune_bluez::{
     bluetooth_adapter::{
-        adapter_snapshot_and_discovery::{
-            AdapterSnapshot, DiscoverySession, read_adapter, start_discovery,
-        },
+        adapter_snapshot_and_discovery::{AdapterSnapshot, read_adapter},
         adapter_udev_hardware::RadioDescription,
     },
     bluez_dbus_session::{BluetoothSession, DeviceLocation},
@@ -16,9 +11,7 @@ use bindrune_bluez::{
         pairing_agent_requests::{AgentPolicy, PairingRequest, pairing_requests},
         pairing_step_failure::ConnectionStepFailure,
     },
-    link_quality::disconnect_reason_history::{
-        ConnectionDrop, ConnectionHistory, connection_drops,
-    },
+    link_quality::disconnect_reason_history::{ConnectionDrop, connection_drops},
     remote_device::{
         remote_device_change_stream::DeviceChange,
         remote_device_commands::{connect_device, disconnect_device, read_device},
@@ -36,7 +29,7 @@ use crate::{
     background_application_lifecycle::{
         application_menu_actions::{AnswerDialogAction, AppActionGroup, QuitAction},
         gsettings_stored_preferences::{AppPreferences, PreferenceChange},
-        system_tray_menu::{TrayContent, TrayDevice, TrayRequest},
+        system_tray_menu::{TrayContent, TrayRequest},
     },
     device_detail::{
         device_detail_page::{DevicePage, DevicePageInit, DevicePageInput, DevicePageOutput},
@@ -49,14 +42,19 @@ use crate::{
         PromptCenter, PromptCenterInput, PromptCenterOutput, PromptRequest, RequesterDescription,
         answer_from_notification_target,
     },
+    sidebar_content_split::{
+        device_connection_history::{ChangedConnectionHistory, DeviceConnectionHistories},
+        tray_device_menu_sync::TrayDeviceMenuSync,
+    },
     sidebar_device_list::{
+        discovery_scan_toggle_row::{
+            DiscoveryScanToggleRow, DiscoveryScanToggleRowInit, DiscoveryScanToggleRowInput,
+        },
         sidebar_adapter_row::{AdapterRow, AdapterRowInit},
         sidebar_device_rows::{DeviceList, DeviceListInput, DeviceListOutput, DeviceListSource},
     },
 };
 
-const SCAN_DURATION_SECONDS: u32 = 60;
-const SCAN_TICK: Duration = Duration::from_secs(1);
 const SETTINGS_TITLE: &str = "Settings";
 
 pub struct MainViewInit {
@@ -73,15 +71,6 @@ enum ContentPage {
     Device(Controller<DevicePage>),
 }
 
-enum ScanState {
-    Idle,
-    Scanning {
-        generation: u64,
-        remaining_seconds: u32,
-        _discovery: DiscoverySession,
-    },
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AfterAdapterSwitch {
     ShowAdapter,
@@ -96,10 +85,9 @@ pub struct MainView {
     radios: Vec<RadioDescription>,
     adapter: AdapterSnapshot,
     device_names: HashMap<bindrune_bluez::Address, String>,
-    paired_tray_devices: BTreeMap<bindrune_bluez::Address, TrayDevice>,
-    connection_histories: BTreeMap<bindrune_bluez::Address, ConnectionHistory>,
-    scan_state: ScanState,
-    scan_generation: u64,
+    tray_devices: TrayDeviceMenuSync,
+    connection_histories: DeviceConnectionHistories,
+    scan_toggle_row: Controller<DiscoveryScanToggleRow>,
     content_page: ContentPage,
     content_title: String,
     split_view: adw::NavigationSplitView,
@@ -115,7 +103,7 @@ pub struct MainView {
 
 #[derive(Debug)]
 pub enum MainViewInput {
-    ScanToggled(bool),
+    ScanFailed(BluetoothError),
     AdapterActivated(String),
     ShowAppSettings,
     RefreshDevices,
@@ -136,11 +124,6 @@ pub enum MainViewOutput {
 #[derive(Debug)]
 pub enum MainViewCommand {
     PairingRequest(PairingRequest),
-    ScanStarted {
-        generation: u64,
-        outcome: Result<DiscoverySession, BluetoothError>,
-    },
-    ScanTick(u64),
     AdapterLoaded {
         outcome: Result<AdapterSnapshot, BluetoothError>,
         after_switch: AfterAdapterSwitch,
@@ -179,31 +162,6 @@ fn launch_adapter_page(
 }
 
 impl MainView {
-    fn is_scanning(&self) -> bool {
-        matches!(self.scan_state, ScanState::Scanning { .. })
-    }
-
-    fn scan_row_title(&self) -> &'static str {
-        if self.is_scanning() {
-            "Looking for Nearby Devices"
-        } else {
-            "Scan for Nearby Devices"
-        }
-    }
-
-    fn scan_row_subtitle(&self) -> String {
-        match self.scan_state {
-            ScanState::Scanning {
-                remaining_seconds, ..
-            } => format!("{remaining_seconds} s left"),
-            ScanState::Idle => "Finds devices that are in pairing mode".to_string(),
-        }
-    }
-
-    fn scan_button_label(&self) -> &'static str {
-        if self.is_scanning() { "Stop" } else { "Scan" }
-    }
-
     fn radio_label(&self, adapter_name: &str) -> String {
         self.radios
             .iter()
@@ -258,7 +216,7 @@ impl MainView {
                 obex: self.obex.clone(),
                 adapter_address: self.adapter.address,
                 accepts_files: self.preferences.accepts_files_from(snapshot.address()),
-                connection_history: self.connection_history_of(snapshot.address()),
+                connection_history: self.connection_histories.history_of(snapshot.address()),
                 received_files_folder: self.preferences.received_files_folder(),
                 snapshot,
             })
@@ -268,20 +226,9 @@ impl MainView {
         self.reveal_content();
     }
 
-    fn start_scan(&mut self, sender: &ComponentSender<Self>) {
-        if self.is_scanning() {
-            return;
-        }
-        self.scan_generation += 1;
-        let generation = self.scan_generation;
-        let session = self.session.clone();
-        let adapter_name = self.adapter.adapter_name.clone();
-        sender.oneshot_command(async move {
-            MainViewCommand::ScanStarted {
-                generation,
-                outcome: start_discovery(&session, &adapter_name).await,
-            }
-        });
+    fn start_scan(&self) {
+        self.scan_toggle_row
+            .emit(DiscoveryScanToggleRowInput::StartScan);
     }
 
     fn switch_adapter(
@@ -300,7 +247,10 @@ impl MainView {
     }
 
     fn install_adapter(&mut self, adapter: AdapterSnapshot, sender: &ComponentSender<Self>) {
-        self.scan_state = ScanState::Idle;
+        self.scan_toggle_row
+            .emit(DiscoveryScanToggleRowInput::AdapterSwitched(
+                adapter.adapter_name.clone(),
+            ));
         self.preferences
             .remember_adapter_name(&adapter.adapter_name);
         self.device_list = launch_device_list(
@@ -316,7 +266,7 @@ impl MainView {
             adapter.adapter_name.clone(),
         ));
         self.device_names.clear();
-        self.paired_tray_devices.clear();
+        self.tray_devices.forget_all_devices();
         self.adapter = adapter;
         self.publish_tray_content(sender);
         self.mark_active_adapter();
@@ -333,7 +283,7 @@ impl MainView {
             DeviceListOutput::Opened(snapshot) => self.open_device(snapshot, sender),
             DeviceListOutput::Changed(device_change) => {
                 self.remember_connection_state(&device_change);
-                self.remember_tray_device(&device_change);
+                self.tray_devices.remember_device_change(&device_change);
                 self.publish_tray_content(sender);
                 self.forward_device_change(device_change);
             }
@@ -346,43 +296,10 @@ impl MainView {
         }
     }
 
-    fn remember_tray_device(&mut self, device_change: &DeviceChange) {
-        match device_change {
-            DeviceChange::Appeared(snapshot) | DeviceChange::Updated(snapshot)
-                if snapshot.paired =>
-            {
-                self.paired_tray_devices.insert(
-                    snapshot.address(),
-                    TrayDevice {
-                        address: snapshot.address(),
-                        display_name: snapshot.display_name().to_string(),
-                        connected: snapshot.connected,
-                    },
-                );
-            }
-            DeviceChange::Appeared(snapshot) | DeviceChange::Updated(snapshot) => {
-                self.paired_tray_devices.remove(&snapshot.address());
-            }
-            DeviceChange::Disappeared(address) => {
-                self.paired_tray_devices.remove(address);
-            }
-        }
-    }
-
     fn publish_tray_content(&self, sender: &ComponentSender<Self>) {
-        let mut paired_devices: Vec<TrayDevice> =
-            self.paired_tray_devices.values().cloned().collect();
-        paired_devices.sort_by(|first_device, second_device| {
-            second_device
-                .connected
-                .cmp(&first_device.connected)
-                .then_with(|| first_device.display_name.cmp(&second_device.display_name))
-        });
-        let _app_window_gone = sender.output(MainViewOutput::TrayContentChanged(TrayContent {
-            powered: self.adapter.powered,
-            visible_for_pairing: self.adapter.discoverable,
-            paired_devices,
-        }));
+        let _app_window_gone = sender.output(MainViewOutput::TrayContentChanged(
+            self.tray_devices.tray_content(&self.adapter),
+        ));
     }
 
     fn handle_tray_request(&mut self, tray_request: TrayRequest, sender: &ComponentSender<Self>) {
@@ -426,47 +343,25 @@ impl MainView {
         }
     }
 
-    fn connection_history_of(&self, address: bindrune_bluez::Address) -> ConnectionHistory {
-        self.connection_histories
-            .get(&address)
-            .cloned()
-            .unwrap_or_default()
-    }
-
-    fn update_connection_history(
-        &mut self,
-        address: bindrune_bluez::Address,
-        change_history: impl FnOnce(&mut ConnectionHistory),
-    ) {
-        let connection_history = self.connection_histories.entry(address).or_default();
-        let previous_history = connection_history.clone();
-        change_history(connection_history);
-        if *connection_history == previous_history || self.shown_device_address() != Some(address) {
+    fn show_changed_connection_history(&self, changed_history: Option<ChangedConnectionHistory>) {
+        let Some(changed_history) = changed_history else {
+            return;
+        };
+        if self.shown_device_address() != Some(changed_history.address) {
             return;
         }
         if let ContentPage::Device(device_page) = &self.content_page {
             device_page.emit(DevicePageInput::ConnectionHistoryChanged(
-                self.connection_history_of(address),
+                changed_history.connection_history,
             ));
         }
     }
 
     fn remember_connection_state(&mut self, device_change: &DeviceChange) {
-        match device_change {
-            DeviceChange::Appeared(snapshot) | DeviceChange::Updated(snapshot) => {
-                let connected = snapshot.connected;
-                self.update_connection_history(snapshot.address(), |connection_history| {
-                    if connected {
-                        connection_history.record_connected(Instant::now());
-                    } else {
-                        connection_history.record_disconnected();
-                    }
-                });
-            }
-            DeviceChange::Disappeared(address) => {
-                self.connection_histories.remove(address);
-            }
-        }
+        let changed_history = self
+            .connection_histories
+            .record_device_change(device_change);
+        self.show_changed_connection_history(changed_history);
     }
 
     fn forward_device_change(&mut self, device_change: DeviceChange) {
@@ -509,7 +404,7 @@ impl MainView {
                 root.add_toast(adw::Toast::new(&hint));
                 self.show_adapter_page();
                 if rescan {
-                    self.start_scan(sender);
+                    self.start_scan();
                 }
             }
             DevicePageOutput::AutoAcceptChosen {
@@ -603,42 +498,8 @@ impl Component for MainView {
                                     #[watch]
                                     set_description: Some(&format!("Known to {}, plus devices found by scanning.", model.adapter.radio_label)),
 
-                                    adw::ActionRow {
-                                        #[watch]
-                                        set_title: model.scan_row_title(),
-                                        #[watch]
-                                        set_subtitle: &model.scan_row_subtitle(),
-
-                                        add_suffix = &gtk::ToggleButton {
-                                            set_valign: gtk::Align::Center,
-                                            #[watch]
-                                            set_tooltip_text: Some(if model.is_scanning() {
-                                                "Stop looking for nearby devices"
-                                            } else {
-                                                "Look for nearby devices for one minute"
-                                            }),
-                                            #[watch]
-                                            #[block_signal(scan_handler)]
-                                            set_active: model.is_scanning(),
-                                            connect_toggled[sender] => move |scan_button| {
-                                                sender.input(MainViewInput::ScanToggled(scan_button.is_active()));
-                                            } @scan_handler,
-
-                                            gtk::Box {
-                                                set_spacing: 6,
-
-                                                adw::Spinner {
-                                                    #[watch]
-                                                    set_visible: model.is_scanning(),
-                                                },
-
-                                                gtk::Label {
-                                                    #[watch]
-                                                    set_label: model.scan_button_label(),
-                                                },
-                                            },
-                                        },
-                                    },
+                                    #[local_ref]
+                                    scan_toggle_row_widget -> adw::ActionRow {},
 
                                     #[local_ref]
                                     device_list_slot -> adw::Bin {},
@@ -779,6 +640,12 @@ impl Component for MainView {
         });
 
         let initial_content_title = adapter.radio_label.clone();
+        let scan_toggle_row = DiscoveryScanToggleRow::builder()
+            .launch(DiscoveryScanToggleRowInit {
+                session: session.clone(),
+                adapter_name: adapter.adapter_name.clone(),
+            })
+            .forward(sender.input_sender(), MainViewInput::ScanFailed);
         let model = Self {
             session,
             obex,
@@ -786,10 +653,9 @@ impl Component for MainView {
             radios,
             adapter,
             device_names: HashMap::new(),
-            paired_tray_devices: BTreeMap::new(),
-            connection_histories: BTreeMap::new(),
-            scan_state: ScanState::Idle,
-            scan_generation: 0,
+            tray_devices: TrayDeviceMenuSync::default(),
+            connection_histories: DeviceConnectionHistories::default(),
+            scan_toggle_row,
             content_page: ContentPage::Adapter,
             content_title: initial_content_title,
             split_view: adw::NavigationSplitView::new(),
@@ -806,6 +672,7 @@ impl Component for MainView {
         let content_slot = &content_slot;
         let split_view = &model.split_view;
         let adapter_group = model.adapter_rows.widget();
+        let scan_toggle_row_widget = model.scan_toggle_row.widget();
         let widgets = view_output!();
 
         let refresh_sender = sender.input_sender().clone();
@@ -828,8 +695,9 @@ impl Component for MainView {
 
     fn update(&mut self, input: Self::Input, sender: ComponentSender<Self>, root: &Self::Root) {
         match input {
-            MainViewInput::ScanToggled(true) => self.start_scan(&sender),
-            MainViewInput::ScanToggled(false) => self.scan_state = ScanState::Idle,
+            MainViewInput::ScanFailed(scan_error) => {
+                root.add_toast(adw::Toast::new(&scan_error.to_string()));
+            }
             MainViewInput::AdapterActivated(adapter_name) => {
                 if adapter_name == self.adapter.adapter_name {
                     self.show_adapter_page();
@@ -910,7 +778,8 @@ impl Component for MainView {
                         .set_child(Some(self.device_list.widget()));
                 }
                 if !adapter.powered {
-                    self.scan_state = ScanState::Idle;
+                    self.scan_toggle_row
+                        .emit(DiscoveryScanToggleRowInput::StopScan);
                 }
                 self.adapter = adapter;
                 self.publish_tray_content(&sender);
@@ -942,49 +811,6 @@ impl Component for MainView {
                         requester: requester_description,
                     }));
             }
-            MainViewCommand::ScanStarted {
-                generation,
-                outcome,
-            } => match outcome {
-                Ok(discovery) if generation == self.scan_generation => {
-                    self.scan_state = ScanState::Scanning {
-                        generation,
-                        remaining_seconds: SCAN_DURATION_SECONDS,
-                        _discovery: discovery,
-                    };
-                    sender.command(move |command_output, shutdown| {
-                        shutdown
-                            .register(
-                                futures::stream::iter(0..SCAN_DURATION_SECONDS)
-                                    .then(|_elapsed_seconds| tokio::time::sleep(SCAN_TICK))
-                                    .for_each(move |()| {
-                                        command_output.emit(MainViewCommand::ScanTick(generation));
-                                        futures::future::ready(())
-                                    }),
-                            )
-                            .drop_on_shutdown()
-                    });
-                }
-                Ok(_stale_discovery) => {}
-                Err(scan_error) => root.add_toast(adw::Toast::new(&scan_error.to_string())),
-            },
-            MainViewCommand::ScanTick(ticked_generation) => {
-                let ScanState::Scanning {
-                    generation,
-                    remaining_seconds,
-                    ..
-                } = &mut self.scan_state
-                else {
-                    return;
-                };
-                if *generation != ticked_generation {
-                    return;
-                }
-                *remaining_seconds = remaining_seconds.saturating_sub(1);
-                if *remaining_seconds == 0 {
-                    self.scan_state = ScanState::Idle;
-                }
-            }
             MainViewCommand::AdapterLoaded {
                 outcome,
                 after_switch,
@@ -994,7 +820,7 @@ impl Component for MainView {
                     self.install_adapter(adapter, &sender);
                     match after_switch {
                         AfterAdapterSwitch::ShowAdapter => {}
-                        AfterAdapterSwitch::StartScan => self.start_scan(&sender),
+                        AfterAdapterSwitch::StartScan => self.start_scan(),
                         AfterAdapterSwitch::OpenDevice(address) => {
                             let session = self.session.clone();
                             let location = DeviceLocation {
@@ -1015,9 +841,10 @@ impl Component for MainView {
             }
             MainViewCommand::ConnectionDropped(connection_drop) => {
                 if connection_drop.adapter_name == self.adapter.adapter_name {
-                    self.update_connection_history(connection_drop.address, |connection_history| {
-                        connection_history.record_drop(connection_drop);
-                    });
+                    let changed_history = self
+                        .connection_histories
+                        .record_connection_drop(connection_drop);
+                    self.show_changed_connection_history(changed_history);
                 }
             }
             MainViewCommand::TrayConnectionChanged(Ok(())) => {}
