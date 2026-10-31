@@ -5,7 +5,7 @@ use bindrune_bluez::{
         ApprovalRequest, PairingRequest, PasskeyRequest, PinCodeRequest,
         SERVICE_AUTHORIZATION_TIMEOUT, ServiceAuthorizationAnswer, ServiceAuthorizationRequest,
     },
-    obex_file_transfer::obex_file_transfers::IncomingTransfer,
+    obex_file_transfer::obex_incoming_push_agent::IncomingTransfer,
     remote_device::advertised_service_uuids_and_capabilities::describe_service,
 };
 use relm4::{adw, adw::prelude::*, gtk, prelude::*};

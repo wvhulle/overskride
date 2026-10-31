@@ -5,7 +5,7 @@ use bindrune_bluez::{
     },
     bluez_dbus_session::BluetoothSession,
     bluez_operation_error::BluetoothError,
-    obex_file_transfer::obex_file_transfers::ObexConnection,
+    obex_file_transfer::obex_dbus_connection::ObexConnection,
 };
 use ksni::TrayMethods;
 use relm4::{

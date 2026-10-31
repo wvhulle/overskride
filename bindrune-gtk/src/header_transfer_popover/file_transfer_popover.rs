@@ -2,8 +2,9 @@ use std::{collections::HashSet, time::Duration};
 
 use bindrune_bluez::{
     bluez_dbus_session::{BluetoothSession, DeviceLocation},
-    obex_file_transfer::obex_file_transfers::{
-        IncomingTransfer, TransferHandle, TransferProgress, TransferStatus,
+    obex_file_transfer::{
+        obex_incoming_push_agent::IncomingTransfer,
+        obex_transfer_progress::{TransferHandle, TransferProgress, TransferStatus},
     },
     remote_device::remote_device_commands::read_device,
 };

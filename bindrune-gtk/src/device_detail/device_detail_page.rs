@@ -15,7 +15,9 @@ use bindrune_bluez::{
         disconnect_reason_history::ConnectionHistory,
         hidraw_report_timing::{ReportTimingSample, report_timing},
     },
-    obex_file_transfer::obex_file_transfers::{ObexConnection, TransferHandle},
+    obex_file_transfer::{
+        obex_dbus_connection::ObexConnection, obex_transfer_progress::TransferHandle,
+    },
     pulse_audio_profiles::{
         ActiveAudioProfile, AudioProfiles, read_audio_profiles, set_audio_profile, switch_audio_off,
     },
