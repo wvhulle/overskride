@@ -221,7 +221,7 @@ fn collapse_when_narrow(window: &adw::ApplicationWindow, main_view: &Controller<
     };
     let breakpoint = adw::Breakpoint::new(narrow_condition);
     breakpoint.add_setter(
-        &main_view.widgets().split_view,
+        main_view.model().content_navigation(),
         "collapsed",
         Some(&true.to_value()),
     );

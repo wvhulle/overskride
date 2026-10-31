@@ -82,7 +82,7 @@ pub struct MainView {
     scan_generation: u64,
     content_page: ContentPage,
     content_title: String,
-    show_content: bool,
+    split_view: adw::NavigationSplitView,
     device_list: Controller<DeviceList>,
     adapter_page: Controller<AdapterPage>,
     app_settings: Controller<AppSettingsPage>,
@@ -98,7 +98,6 @@ pub enum MainViewInput {
     ScanToggled(bool),
     AdapterActivated(String),
     ShowAppSettings,
-    BackToSidebar,
     RefreshDevices,
     PreferenceChanged(PreferenceChange),
     DeviceList(DeviceListOutput),
@@ -194,6 +193,14 @@ impl MainView {
             )
     }
 
+    fn reveal_content(&self) {
+        self.split_view.set_show_content(true);
+    }
+
+    pub fn content_navigation(&self) -> &adw::NavigationSplitView {
+        &self.split_view
+    }
+
     fn show_app_settings(&mut self) {
         self.content_page = ContentPage::AppSettings;
         self.content_slot
@@ -220,6 +227,10 @@ impl MainView {
 
     fn open_device(&mut self, snapshot: DeviceSnapshot, sender: &ComponentSender<Self>) {
         self.content_title = snapshot.display_name().to_string();
+        if self.shown_device_address() == Some(snapshot.address()) {
+            self.reveal_content();
+            return;
+        }
         let device_page = DevicePage::builder()
             .launch(DevicePageInit {
                 session: self.session.clone(),
@@ -232,7 +243,7 @@ impl MainView {
             .forward(sender.input_sender(), MainViewInput::DevicePage);
         self.content_slot.set_child(Some(&**device_page.widget()));
         self.content_page = ContentPage::Device(device_page);
-        self.show_content = true;
+        self.reveal_content();
     }
 
     fn start_scan(&mut self, sender: &ComponentSender<Self>) {
@@ -379,7 +390,7 @@ impl MainView {
             }
             TrayRequest::ShowSettings => {
                 self.show_app_settings();
-                self.show_content = true;
+                self.reveal_content();
             }
             TrayRequest::OpenWindow | TrayRequest::Quit => {}
         }
@@ -474,12 +485,10 @@ impl Component for MainView {
 
     view! {
         adw::ToastOverlay {
-            #[name = "split_view"]
-            adw::NavigationSplitView {
+            #[local_ref]
+            split_view -> adw::NavigationSplitView {
                 set_min_sidebar_width: 300.0,
                 set_max_sidebar_width: 360.0,
-                #[watch]
-                set_show_content: model.show_content,
 
                 #[wrap(Some)]
                 set_sidebar = &adw::NavigationPage {
@@ -577,7 +586,6 @@ impl Component for MainView {
                 set_content = &adw::NavigationPage {
                     #[watch]
                     set_title: &model.content_title,
-                    connect_hidden => MainViewInput::BackToSidebar,
 
                     #[wrap(Some)]
                     set_child = &adw::ToolbarView {
@@ -700,7 +708,7 @@ impl Component for MainView {
             scan_generation: 0,
             content_page: ContentPage::Adapter,
             content_title: initial_content_title,
-            show_content: false,
+            split_view: adw::NavigationSplitView::new(),
             device_list,
             adapter_page,
             app_settings,
@@ -712,6 +720,7 @@ impl Component for MainView {
         };
         let device_list_slot = &device_list_slot;
         let content_slot = &content_slot;
+        let split_view = &model.split_view;
         let adapter_group = model.adapter_rows.widget();
         let widgets = view_output!();
 
@@ -741,13 +750,12 @@ impl Component for MainView {
                 } else {
                     self.switch_adapter(adapter_name, AfterAdapterSwitch::ShowAdapter, &sender);
                 }
-                self.show_content = true;
+                self.reveal_content();
             }
             MainViewInput::ShowAppSettings => {
                 self.show_app_settings();
-                self.show_content = true;
+                self.reveal_content();
             }
-            MainViewInput::BackToSidebar => self.show_content = false,
             MainViewInput::RefreshDevices => {
                 self.device_list = launch_device_list(
                     &self.session,
