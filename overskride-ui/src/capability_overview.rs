@@ -4,6 +4,7 @@ use overskride_bluetooth::device_capabilities::{CapabilityCategory, DeviceCapabi
 use relm4::RelmWidgetExt;
 use relm4::adw;
 use relm4::adw::prelude::*;
+use relm4::factory::{DynamicIndex, FactoryComponent, FactorySender, FactoryVecDeque};
 use relm4::gtk;
 use relm4::prelude::*;
 
@@ -18,76 +19,43 @@ pub enum CapabilityOverviewInput {
     SourcesChanged(CapabilitySources),
 }
 
-struct CapabilityIndicator {
-    capability: DeviceCapability,
-    status_icon: gtk::Image,
-    title_label: gtk::Label,
-}
-
-struct CategorySection {
-    category: CapabilityCategory,
-    section_row: adw::PreferencesRow,
-    indicators: Vec<CapabilityIndicator>,
+#[derive(Clone, Debug)]
+pub enum CapabilitySourcesInput {
+    SourcesChanged(CapabilitySources),
 }
 
 pub struct CapabilityOverview {
     sources: CapabilitySources,
-    sections: Vec<CategorySection>,
+    sections: FactoryVecDeque<CapabilitySection>,
 }
 
-fn build_indicator(capability: DeviceCapability, flow_box: &gtk::FlowBox) -> CapabilityIndicator {
-    let status_icon = gtk::Image::new();
-    let title_label = gtk::Label::builder()
-        .label(capability.capability_title())
-        .wrap(true)
-        .xalign(0.0)
-        .build();
-    let indicator_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
-    indicator_box.append(&status_icon);
-    indicator_box.append(&title_label);
-    flow_box.append(&indicator_box);
-    CapabilityIndicator {
-        capability,
-        status_icon,
-        title_label,
-    }
-}
-
-fn build_section(
+pub struct CapabilitySection {
     category: CapabilityCategory,
-    overview_group: &adw::PreferencesGroup,
-) -> CategorySection {
-    let heading_label = gtk::Label::builder()
-        .label(category.category_title())
-        .xalign(0.0)
-        .css_classes(["heading"])
-        .build();
-    let flow_box = gtk::FlowBox::builder()
-        .selection_mode(gtk::SelectionMode::None)
-        .homogeneous(true)
-        .min_children_per_line(1)
-        .max_children_per_line(2)
-        .column_spacing(12)
-        .row_spacing(6)
-        .build();
-    let section_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
-    section_box.set_margin_all(12);
-    section_box.append(&heading_label);
-    section_box.append(&flow_box);
-    let section_row = adw::PreferencesRow::builder()
-        .activatable(false)
-        .child(&section_box)
-        .build();
-    overview_group.add(&section_row);
-    let indicators = category
+    offered_count: usize,
+    indicators: FactoryVecDeque<CapabilityIndicator>,
+}
+
+pub struct CapabilityIndicator {
+    capability: DeviceCapability,
+    offered: bool,
+    made_by_apple: bool,
+}
+
+pub struct CapabilitySectionInit {
+    category: CapabilityCategory,
+    sources: CapabilitySources,
+}
+
+pub struct CapabilityIndicatorInit {
+    capability: DeviceCapability,
+    sources: CapabilitySources,
+}
+
+fn count_offered(category: CapabilityCategory, sources: &CapabilitySources) -> usize {
+    category
         .capabilities()
-        .map(|capability| build_indicator(capability, &flow_box))
-        .collect();
-    CategorySection {
-        category,
-        section_row,
-        indicators,
-    }
+        .filter(|capability| capability.is_offered_by(&sources.advertised_services))
+        .count()
 }
 
 fn indicator_title(capability: DeviceCapability, offered: bool, made_by_apple: bool) -> String {
@@ -102,64 +70,185 @@ fn indicator_title(capability: DeviceCapability, offered: bool, made_by_apple: b
     }
 }
 
-impl CapabilityIndicator {
-    fn show_offered(&self, sources: &CapabilitySources) -> bool {
-        let offered = self.capability.is_offered_by(&sources.advertised_services);
-        let (icon_name, tooltip_text) = if offered {
-            ("object-select-symbolic", "Supported")
-        } else {
-            ("window-close-symbolic", "Not supported")
-        };
-        self.status_icon.set_icon_name(Some(icon_name));
-        self.status_icon.set_tooltip_text(Some(tooltip_text));
-        self.status_icon.set_css_classes(if offered {
-            &["success"]
-        } else {
-            &["dim-label"]
-        });
-        self.title_label
-            .set_css_classes(if offered { &[] } else { &["dim-label"] });
-        self.title_label.set_label(&indicator_title(
-            self.capability,
-            offered,
-            sources.made_by_apple,
-        ));
-        offered
+fn status_icon_name(offered: bool) -> &'static str {
+    if offered {
+        "object-select-symbolic"
+    } else {
+        "window-close-symbolic"
     }
 }
 
-impl CategorySection {
-    fn show_sources(&self, sources: &CapabilitySources) {
-        let offered_count = self
-            .indicators
-            .iter()
-            .filter(|indicator| indicator.show_offered(sources))
-            .count();
-        self.section_row
-            .set_visible(offered_count > 0 || self.category.shown_when_empty());
+fn status_tooltip(offered: bool) -> &'static str {
+    if offered {
+        "Supported"
+    } else {
+        "Not supported"
     }
 }
 
-impl CapabilityOverview {
-    fn show_sources(&self) {
-        self.sections
-            .iter()
-            .for_each(|section| section.show_sources(&self.sources));
+fn status_icon_classes(offered: bool) -> &'static [&'static str] {
+    if offered {
+        &["success"]
+    } else {
+        &["dim-label"]
     }
 }
 
+fn title_label_classes(offered: bool) -> &'static [&'static str] {
+    if offered { &[] } else { &["dim-label"] }
+}
+
+#[relm4::factory(pub)]
+impl FactoryComponent for CapabilityIndicator {
+    type Init = CapabilityIndicatorInit;
+    type Input = CapabilitySourcesInput;
+    type Output = ();
+    type CommandOutput = ();
+    type ParentWidget = gtk::FlowBox;
+
+    view! {
+        gtk::Box {
+            set_orientation: gtk::Orientation::Horizontal,
+            set_spacing: 8,
+
+            gtk::Image {
+                #[watch]
+                set_icon_name: Some(status_icon_name(self.offered)),
+                #[watch]
+                set_tooltip_text: Some(status_tooltip(self.offered)),
+                #[watch]
+                set_css_classes: status_icon_classes(self.offered),
+            },
+
+            gtk::Label {
+                set_wrap: true,
+                set_xalign: 0.0,
+                #[watch]
+                set_label: &indicator_title(self.capability, self.offered, self.made_by_apple),
+                #[watch]
+                set_css_classes: title_label_classes(self.offered),
+            },
+        }
+    }
+
+    fn init_model(
+        indicator_init: Self::Init,
+        _index: &DynamicIndex,
+        _sender: FactorySender<Self>,
+    ) -> Self {
+        let CapabilityIndicatorInit {
+            capability,
+            sources,
+        } = indicator_init;
+        Self {
+            capability,
+            offered: capability.is_offered_by(&sources.advertised_services),
+            made_by_apple: sources.made_by_apple,
+        }
+    }
+
+    fn update(&mut self, input: Self::Input, _sender: FactorySender<Self>) {
+        match input {
+            CapabilitySourcesInput::SourcesChanged(sources) => {
+                self.offered = self.capability.is_offered_by(&sources.advertised_services);
+                self.made_by_apple = sources.made_by_apple;
+            }
+        }
+    }
+}
+
+#[relm4::factory(pub)]
+impl FactoryComponent for CapabilitySection {
+    type Init = CapabilitySectionInit;
+    type Input = CapabilitySourcesInput;
+    type Output = ();
+    type CommandOutput = ();
+    type ParentWidget = adw::PreferencesGroup;
+
+    view! {
+        adw::PreferencesRow {
+            set_activatable: false,
+            #[watch]
+            set_visible: self.offered_count > 0 || self.category.shown_when_empty(),
+
+            #[wrap(Some)]
+            set_child = &gtk::Box {
+                set_orientation: gtk::Orientation::Vertical,
+                set_spacing: 6,
+                set_margin_all: 12,
+
+                gtk::Label {
+                    set_label: self.category.category_title(),
+                    set_xalign: 0.0,
+                    add_css_class: "heading",
+                },
+
+                append: self.indicators.widget(),
+            },
+        }
+    }
+
+    fn init_model(
+        section_init: Self::Init,
+        _index: &DynamicIndex,
+        _sender: FactorySender<Self>,
+    ) -> Self {
+        let CapabilitySectionInit { category, sources } = section_init;
+        let mut indicators = FactoryVecDeque::builder()
+            .launch(
+                gtk::FlowBox::builder()
+                    .selection_mode(gtk::SelectionMode::None)
+                    .homogeneous(true)
+                    .min_children_per_line(1)
+                    .max_children_per_line(2)
+                    .column_spacing(12)
+                    .row_spacing(6)
+                    .build(),
+            )
+            .detach();
+        {
+            let mut indicator_guard = indicators.guard();
+            category.capabilities().for_each(|capability| {
+                indicator_guard.push_back(CapabilityIndicatorInit {
+                    capability,
+                    sources: sources.clone(),
+                });
+            });
+        }
+        Self {
+            category,
+            offered_count: count_offered(category, &sources),
+            indicators,
+        }
+    }
+
+    fn update(&mut self, input: Self::Input, _sender: FactorySender<Self>) {
+        match input {
+            CapabilitySourcesInput::SourcesChanged(sources) => {
+                self.offered_count = count_offered(self.category, &sources);
+                self.indicators
+                    .broadcast(CapabilitySourcesInput::SourcesChanged(sources));
+            }
+        }
+    }
+}
+
+#[relm4::component(pub)]
 impl SimpleComponent for CapabilityOverview {
     type Init = CapabilitySources;
     type Input = CapabilityOverviewInput;
     type Output = ();
-    type Root = adw::PreferencesGroup;
-    type Widgets = ();
 
-    fn init_root() -> Self::Root {
-        adw::PreferencesGroup::builder()
-            .title("Capabilities")
-            .description("What this device advertises it can do with this computer.")
-            .build()
+    view! {
+        gtk::Box {
+            set_orientation: gtk::Orientation::Vertical,
+
+            #[local_ref]
+            section_group -> adw::PreferencesGroup {
+                set_title: "Capabilities",
+                set_description: Some("What this device advertises it can do with this computer."),
+            },
+        }
     }
 
     fn init(
@@ -167,21 +256,31 @@ impl SimpleComponent for CapabilityOverview {
         root: Self::Root,
         _sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let sections = CapabilityCategory::ALL
-            .into_iter()
-            .map(|category| build_section(category, &root))
-            .collect();
+        let mut sections = FactoryVecDeque::builder()
+            .launch(adw::PreferencesGroup::default())
+            .detach();
+        {
+            let mut section_guard = sections.guard();
+            CapabilityCategory::ALL.into_iter().for_each(|category| {
+                section_guard.push_back(CapabilitySectionInit {
+                    category,
+                    sources: sources.clone(),
+                });
+            });
+        }
         let model = Self { sources, sections };
-        model.show_sources();
-        ComponentParts { model, widgets: () }
+        let section_group = model.sections.widget();
+        let widgets = view_output!();
+        ComponentParts { model, widgets }
     }
 
     fn update(&mut self, input: Self::Input, _sender: ComponentSender<Self>) {
         match input {
             CapabilityOverviewInput::SourcesChanged(sources) => {
                 if sources != self.sources {
+                    self.sections
+                        .broadcast(CapabilitySourcesInput::SourcesChanged(sources.clone()));
                     self.sources = sources;
-                    self.show_sources();
                 }
             }
         }

@@ -15,21 +15,10 @@ use relm4::gtk::glib;
 use relm4::prelude::*;
 
 use crate::app_preferences::AppPreferences;
-use crate::attention_dialogs::choose_with_notification;
 use crate::device_page::ObexAvailability;
-use crate::widgets::alert_dialogs::{AlertChoice, build_alert, plain_choice, suggested_choice};
 
 const FINISHED_TRANSFER_LINGER: Duration = Duration::from_secs(60);
 const BYTES_PER_MEGABYTE: f64 = 1_000_000.0;
-const BONDED_SENDER_CHOICES: [AlertChoice; 3] = [
-    plain_choice("reject", "Reject"),
-    plain_choice("accept", "Accept"),
-    suggested_choice("always", "Always Accept"),
-];
-const UNBONDED_SENDER_CHOICES: [AlertChoice; 2] = [
-    plain_choice("reject", "Reject"),
-    suggested_choice("accept", "Accept"),
-];
 
 pub struct TransfersInit {
     pub session: BluetoothSession,
@@ -65,7 +54,7 @@ pub enum TransferDecision {
 }
 
 impl TransferDecision {
-    fn from_response(response_id: &str) -> Self {
+    pub fn from_response(response_id: &str) -> Self {
         match response_id {
             "always" => Self::AlwaysAccepted,
             "accept" => Self::Accepted,
@@ -77,13 +66,14 @@ impl TransferDecision {
 #[derive(Debug)]
 pub enum TransfersOutput {
     ReceivingFile { file_name: String },
+    DecisionNeeded(SenderAssessment),
 }
 
 #[derive(Debug)]
 pub struct SenderAssessment {
-    incoming_transfer: IncomingTransfer,
-    sender_name: String,
-    bonded: bool,
+    pub incoming_transfer: IncomingTransfer,
+    pub sender_name: String,
+    pub bonded: bool,
 }
 
 #[derive(Debug)]
@@ -93,7 +83,7 @@ pub enum TransfersCommand {
     RemoveFinishedRow(DynamicIndex),
 }
 
-fn megabytes(byte_count: u64) -> f64 {
+pub fn megabytes(byte_count: u64) -> f64 {
     let whole_kilobytes = u32::try_from(byte_count / 1000).unwrap_or(u32::MAX);
     f64::from(whole_kilobytes) * 1000.0 / BYTES_PER_MEGABYTE
 }
@@ -124,35 +114,6 @@ impl TransfersPopover {
                 bonded: sender_snapshot.is_ok_and(|snapshot| snapshot.bonded),
                 incoming_transfer,
             })
-        });
-    }
-
-    fn ask_user(assessment: SenderAssessment, sender: &ComponentSender<Self>) {
-        let answer_choices: &[AlertChoice] = if assessment.bonded {
-            &BONDED_SENDER_CHOICES
-        } else {
-            &UNBONDED_SENDER_CHOICES
-        };
-        let question_dialog = build_alert(
-            "File Transfer Incoming",
-            &format!(
-                "Accept {} ({:.2} MB) from {}?",
-                assessment.incoming_transfer.file_name,
-                megabytes(assessment.incoming_transfer.total_bytes),
-                assessment.sender_name
-            ),
-            answer_choices,
-        );
-        let input_sender = sender.input_sender().clone();
-        let incoming_transfer = assessment.incoming_transfer;
-        relm4::spawn_local(async move {
-            let transfer_decision = TransferDecision::from_response(
-                &choose_with_notification(&question_dialog, answer_choices).await,
-            );
-            input_sender.emit(TransfersInput::Decided {
-                incoming_transfer,
-                transfer_decision,
-            });
         });
     }
 }
@@ -292,7 +253,8 @@ impl Component for TransfersPopover {
                 {
                     self.accept(assessment.incoming_transfer, &sender);
                 } else {
-                    Self::ask_user(assessment, &sender);
+                    let _main_view_gone =
+                        sender.output(TransfersOutput::DecisionNeeded(assessment));
                 }
             }
             TransfersCommand::RemoveFinishedRow(finished_index) => {

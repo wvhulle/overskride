@@ -4,6 +4,8 @@ use overskride_bluetooth::pairing_steps::{
     PAIRING_STEP_DEFINITIONS, is_step_applicable, is_step_done,
 };
 
+use crate::icon_names;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PairingStatusBadge {
     pub icon_name: &'static str,
@@ -14,13 +16,13 @@ pub struct PairingStatusBadge {
 
 pub fn signal_icon_name(signal_strength: SignalStrength) -> &'static str {
     match signal_strength {
-        SignalStrength::Unknown => "rssi-none-symbolic",
-        SignalStrength::Measured(rssi) if rssi >= -60 => "rssi-high-symbolic",
-        SignalStrength::Measured(rssi) if rssi >= -70 => "rssi-medium-symbolic",
-        SignalStrength::Measured(rssi) if rssi >= -80 => "rssi-low-symbolic",
-        SignalStrength::Measured(rssi) if rssi >= -90 => "rssi-dead-symbolic",
-        SignalStrength::Measured(rssi) if rssi >= -100 => "rssi-none-symbolic",
-        SignalStrength::Measured(_) => "rssi-not-found-symbolic",
+        SignalStrength::Unknown => icon_names::custom::RSSI_NONE_SYMBOLIC,
+        SignalStrength::Measured(rssi) if rssi >= -60 => icon_names::custom::RSSI_HIGH_SYMBOLIC,
+        SignalStrength::Measured(rssi) if rssi >= -70 => icon_names::custom::RSSI_MEDIUM_SYMBOLIC,
+        SignalStrength::Measured(rssi) if rssi >= -80 => icon_names::custom::RSSI_LOW_SYMBOLIC,
+        SignalStrength::Measured(rssi) if rssi >= -90 => icon_names::custom::RSSI_DEAD_SYMBOLIC,
+        SignalStrength::Measured(rssi) if rssi >= -100 => icon_names::custom::RSSI_NONE_SYMBOLIC,
+        SignalStrength::Measured(_) => icon_names::custom::RSSI_NOT_FOUND_SYMBOLIC,
     }
 }
 
@@ -28,7 +30,9 @@ pub fn device_icon_name(snapshot: &DeviceSnapshot) -> &str {
     if snapshot.icon_name.is_empty() {
         snapshot
             .device_guess()
-            .map_or("bluetooth-symbolic", |device_guess| device_guess.icon_name)
+            .map_or(icon_names::shipped::BLUETOOTH, |device_guess| {
+                device_guess.icon_name
+            })
     } else {
         &snapshot.icon_name
     }
@@ -142,19 +146,19 @@ mod tests {
     fn signal_icons_get_weaker_with_lower_rssi() {
         assert_eq!(
             signal_icon_name(SignalStrength::Measured(-50)),
-            "rssi-high-symbolic"
+            icon_names::custom::RSSI_HIGH_SYMBOLIC
         );
         assert_eq!(
             signal_icon_name(SignalStrength::Measured(-75)),
-            "rssi-low-symbolic"
+            icon_names::custom::RSSI_LOW_SYMBOLIC
         );
         assert_eq!(
             signal_icon_name(SignalStrength::Measured(-120)),
-            "rssi-not-found-symbolic"
+            icon_names::custom::RSSI_NOT_FOUND_SYMBOLIC
         );
         assert_eq!(
             signal_icon_name(SignalStrength::Unknown),
-            "rssi-none-symbolic"
+            icon_names::custom::RSSI_NONE_SYMBOLIC
         );
     }
 }

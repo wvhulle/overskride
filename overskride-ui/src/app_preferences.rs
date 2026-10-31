@@ -10,6 +10,17 @@ const AUTO_ACCEPT_SENDERS_KEY: &str = "auto-accept-senders";
 pub const RUN_IN_BACKGROUND_KEY: &str = "run-in-background";
 pub const START_AT_LOGIN_KEY: &str = "start-at-login";
 
+const SHOW_UNNAMED_DEVICES_KEY: &str = "show-unnamed-devices";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PreferenceChange {
+    RunInBackground(bool),
+    StartAtLogin(bool),
+    ShowUnnamedDevices(bool),
+    AutoAcceptSenders,
+    Unrelated,
+}
+
 #[derive(Clone, Debug)]
 pub struct AppPreferences {
     settings: gio::Settings,
@@ -35,6 +46,18 @@ fn bundled_settings() -> gio::Settings {
     gio::Settings::new_full(&bundled_schema, None::<&gio::SettingsBackend>, None)
 }
 
+fn read_preference_change(settings: &gio::Settings, setting_key: &str) -> PreferenceChange {
+    match setting_key {
+        RUN_IN_BACKGROUND_KEY => PreferenceChange::RunInBackground(settings.boolean(setting_key)),
+        START_AT_LOGIN_KEY => PreferenceChange::StartAtLogin(settings.boolean(setting_key)),
+        SHOW_UNNAMED_DEVICES_KEY => {
+            PreferenceChange::ShowUnnamedDevices(settings.boolean(setting_key))
+        }
+        AUTO_ACCEPT_SENDERS_KEY => PreferenceChange::AutoAcceptSenders,
+        _ => PreferenceChange::Unrelated,
+    }
+}
+
 impl AppPreferences {
     pub fn load() -> Self {
         Self {
@@ -47,13 +70,13 @@ impl AppPreferences {
     }
 
     pub fn show_unnamed_devices(&self) -> bool {
-        self.settings.boolean("show-unnamed-devices")
+        self.settings.boolean(SHOW_UNNAMED_DEVICES_KEY)
     }
 
     pub fn set_show_unnamed_devices(&self, show_unnamed_devices: bool) {
         let _unwritable_setting_is_not_fatal = self
             .settings
-            .set_boolean("show-unnamed-devices", show_unnamed_devices);
+            .set_boolean(SHOW_UNNAMED_DEVICES_KEY, show_unnamed_devices);
     }
 
     pub fn run_in_background(&self) -> bool {
@@ -91,11 +114,14 @@ impl AppPreferences {
         self.store_auto_accept_addresses(&remaining_addresses);
     }
 
-    pub fn connect_auto_accept_changed<F: Fn() + 'static>(&self, on_auto_accept_changed: F) {
-        self.settings.connect_changed(
-            Some(AUTO_ACCEPT_SENDERS_KEY),
-            move |_changed_settings, _setting_key| on_auto_accept_changed(),
-        );
+    pub fn connect_preference_changes<F: Fn(PreferenceChange) + 'static>(
+        &self,
+        on_preference_change: F,
+    ) {
+        self.settings
+            .connect_changed(None, move |changed_settings, setting_key| {
+                on_preference_change(read_preference_change(changed_settings, setting_key));
+            });
     }
 
     fn auto_accept_addresses(&self) -> Vec<String> {

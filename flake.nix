@@ -45,8 +45,6 @@
             root = ./.;
             fileset = lib.fileset.unions [
               (craneLib.fileset.commonCargoSources ./.)
-              ./overskride-ui/src/overskride.gresource.xml
-              ./overskride-ui/src/gtk
               ./overskride-ui/src/icons
               ./data/${applicationId}.gschema.xml
             ];

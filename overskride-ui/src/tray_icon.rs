@@ -1,9 +1,7 @@
 use ksni::menu::{CheckmarkItem, StandardItem};
-use relm4::gtk::glib;
-use relm4::gtk::prelude::*;
 
-use crate::app_actions::present_main_window;
 use crate::app_preferences::APPLICATION_ID;
+use crate::app_window::AppWindowInput;
 
 const MOST_TRAY_DEVICES: usize = 8;
 
@@ -23,6 +21,8 @@ pub struct TrayContent {
 
 #[derive(Debug)]
 pub enum TrayRequest {
+    OpenWindow,
+    Quit,
     SetPowered(bool),
     SetVisibleForPairing(bool),
     SetDeviceConnected {
@@ -32,30 +32,21 @@ pub enum TrayRequest {
     ShowSettings,
 }
 
-#[derive(Clone)]
-pub enum TrayControl {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TrayScope {
     WindowOnly,
-    Bluetooth(relm4::Sender<TrayRequest>),
+    Bluetooth,
 }
 
 pub struct OverskrideTray {
-    pub control: TrayControl,
+    pub window_sender: relm4::Sender<AppWindowInput>,
+    pub scope: TrayScope,
     pub content: TrayContent,
-}
-
-fn run_on_main_thread(main_thread_action: fn()) {
-    glib::MainContext::default().invoke(main_thread_action);
-}
-
-fn quit_application() {
-    relm4::main_application().quit();
 }
 
 impl OverskrideTray {
     fn request(&self, tray_request: TrayRequest) {
-        if let TrayControl::Bluetooth(request_sender) = &self.control {
-            request_sender.emit(tray_request);
-        }
+        self.window_sender.emit(AppWindowInput::Tray(tray_request));
     }
 
     fn bluetooth_items(&self) -> Vec<ksni::MenuItem<Self>> {
@@ -159,20 +150,20 @@ impl ksni::Tray for OverskrideTray {
     }
 
     fn activate(&mut self, _horizontal_position: i32, _vertical_position: i32) {
-        run_on_main_thread(present_main_window);
+        self.request(TrayRequest::OpenWindow);
     }
 
     fn menu(&self) -> Vec<ksni::MenuItem<Self>> {
         let mut menu_items = vec![
             StandardItem {
                 label: "Open Overskride".to_string(),
-                activate: Box::new(|_tray: &mut Self| run_on_main_thread(present_main_window)),
+                activate: Box::new(|tray: &mut Self| tray.request(TrayRequest::OpenWindow)),
                 ..Default::default()
             }
             .into(),
             ksni::MenuItem::Separator,
         ];
-        if matches!(self.control, TrayControl::Bluetooth(_)) {
+        if self.scope == TrayScope::Bluetooth {
             menu_items.extend(self.bluetooth_items());
             menu_items.push(ksni::MenuItem::Separator);
             menu_items.push(
@@ -189,7 +180,7 @@ impl ksni::Tray for OverskrideTray {
             StandardItem {
                 label: "Quit".to_string(),
                 icon_name: "application-exit".to_string(),
-                activate: Box::new(|_tray: &mut Self| run_on_main_thread(quit_application)),
+                activate: Box::new(|tray: &mut Self| tray.request(TrayRequest::Quit)),
                 ..Default::default()
             }
             .into(),

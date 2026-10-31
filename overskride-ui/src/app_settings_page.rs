@@ -7,6 +7,7 @@ use relm4::gtk::gio;
 use relm4::prelude::*;
 
 use crate::app_preferences::{AppPreferences, RUN_IN_BACKGROUND_KEY, START_AT_LOGIN_KEY};
+use crate::icon_names;
 use crate::login_autostart::managed_by_systemd;
 use crate::widgets::page_templates::{ClampedPage, PageHeader};
 
@@ -57,7 +58,7 @@ impl SimpleComponent for AppSettingsPage {
                         set_subtitle: &model.received_files_folder.to_string_lossy(),
 
                         add_suffix = &gtk::Button {
-                            set_icon_name: "folder-symbolic",
+                            set_icon_name: icon_names::shipped::FOLDER,
                             set_valign: gtk::Align::Center,
                             set_tooltip_text: Some("Choose Folder"),
                             add_css_class: "flat",

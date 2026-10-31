@@ -5,6 +5,7 @@ use relm4::gtk;
 use relm4::gtk::glib;
 use relm4::{ComponentParts, ComponentSender, SimpleComponent};
 
+use crate::icon_names;
 use crate::pairing_presentation::{
     PolicySelector, PropertyHint, PropertyRow, RadioControl, RadioRowPresentation, StepButtonSlot,
     StepNodeState, StepPresentation, TimelineAction, TimelinePresentation,
@@ -415,7 +416,7 @@ impl SimpleComponent for PairingTimeline {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let radio_expander = adw::ExpanderRow::builder().title("Radio").build();
-        radio_expander.add_prefix(&gtk::Image::from_icon_name("bluetooth-symbolic"));
+        radio_expander.add_prefix(&gtk::Image::from_icon_name(icon_names::shipped::BLUETOOTH));
         let radio_info_icon = gtk::Image::builder()
             .icon_name("dialog-information-symbolic")
             .visible(false)

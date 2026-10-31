@@ -1,9 +1,8 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-const RESOURCE_SOURCE_DIRECTORY: &str = "src";
-const RESOURCE_MANIFEST: &str = "src/overskride.gresource.xml";
-const RESOURCE_BUNDLE_NAME: &str = "overskride.gresource";
+const APPLICATION_ID: &str = "io.github.kaii_lb.Overskride";
+const CUSTOM_ICON_DIRECTORY: &str = "src/icons/symbolic/actions";
 const SCHEMA_SOURCE_DIRECTORY: &str = "../data";
 const SCHEMA_FILE: &str = "../data/io.github.kaii_lb.Overskride.gschema.xml";
 
@@ -26,13 +25,13 @@ fn compile_settings_schema() {
 }
 
 fn main() {
-    println!("cargo:rerun-if-changed={RESOURCE_SOURCE_DIRECTORY}/icons");
-    println!("cargo:rerun-if-changed={RESOURCE_MANIFEST}");
     println!("cargo:rerun-if-changed={SCHEMA_FILE}");
-    glib_build_tools::compile_resources(
-        &[RESOURCE_SOURCE_DIRECTORY],
-        RESOURCE_MANIFEST,
-        RESOURCE_BUNDLE_NAME,
+    relm4_icons_build::bundle_icons(
+        "icon_names.rs",
+        Some(APPLICATION_ID),
+        None::<&str>,
+        Some(CUSTOM_ICON_DIRECTORY),
+        ["phone", "bluetooth", "folder"],
     );
     compile_settings_schema();
 }

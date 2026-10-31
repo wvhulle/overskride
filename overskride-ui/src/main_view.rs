@@ -22,14 +22,17 @@ use relm4::factory::FactoryVecDeque;
 use crate::adapter_page::{AdapterPage, AdapterPageInit, AdapterPageInput, AdapterPageOutput};
 use crate::adapter_row::{AdapterRow, AdapterRowInit};
 use crate::app_actions::QuitAction;
-use crate::app_actions::present_main_window;
-use crate::app_preferences::AppPreferences;
+use crate::app_actions::{AnswerDialogAction, AppActionGroup};
+use crate::app_preferences::{AppPreferences, PreferenceChange};
 use crate::app_settings_page::AppSettingsPage;
 use crate::device_list::{DeviceList, DeviceListInput, DeviceListOutput, DeviceListSource};
 use crate::device_page::{
     DevicePage, DevicePageInit, DevicePageInput, DevicePageOutput, ObexAvailability,
 };
-use crate::pairing_prompts::{RequesterDescription, present_pairing_request};
+use crate::prompt_center::{
+    PromptCenter, PromptCenterInput, PromptCenterOutput, PromptRequest, RequesterDescription,
+    answer_from_notification_target,
+};
 use crate::transfers_popover::{TransfersInit, TransfersInput, TransfersOutput, TransfersPopover};
 use crate::tray_icon::{TrayContent, TrayDevice, TrayRequest};
 
@@ -85,6 +88,7 @@ pub struct MainView {
     app_settings: Controller<AppSettingsPage>,
     adapter_rows: FactoryVecDeque<AdapterRow>,
     transfers: Controller<TransfersPopover>,
+    prompt_center: Controller<PromptCenter>,
     device_list_slot: adw::Bin,
     content_slot: adw::Bin,
 }
@@ -96,12 +100,12 @@ pub enum MainViewInput {
     ShowAppSettings,
     BackToSidebar,
     RefreshDevices,
-    ShowUnnamedDevices(bool),
-    AutoAcceptChanged,
+    PreferenceChanged(PreferenceChange),
     DeviceList(DeviceListOutput),
     DevicePage(DevicePageOutput),
     AdapterPage(AdapterPageOutput),
     Transfers(TransfersOutput),
+    PromptCenter(PromptCenterOutput),
     Tray(TrayRequest),
 }
 
@@ -376,8 +380,8 @@ impl MainView {
             TrayRequest::ShowSettings => {
                 self.show_app_settings();
                 self.show_content = true;
-                present_main_window();
             }
+            TrayRequest::OpenWindow | TrayRequest::Quit => {}
         }
     }
 
@@ -632,6 +636,19 @@ impl Component for MainView {
                 active: radio.adapter_name == adapter.adapter_name,
             });
         });
+        let prompt_center = PromptCenter::builder()
+            .launch(())
+            .forward(sender.input_sender(), MainViewInput::PromptCenter);
+        let prompt_center_sender = prompt_center.sender().clone();
+        let answer_dialog_action: relm4::actions::RelmAction<AnswerDialogAction> =
+            relm4::actions::RelmAction::new_with_target_value(
+                move |_answer_dialog_action, notification_target: (u64, String)| {
+                    answer_from_notification_target(&prompt_center_sender, notification_target);
+                },
+            );
+        let mut prompt_actions = relm4::actions::RelmActionGroup::<AppActionGroup>::new();
+        prompt_actions.add_action(answer_dialog_action);
+        prompt_actions.register_for_main_application();
         let transfers = TransfersPopover::builder()
             .launch(TransfersInit {
                 session: session.clone(),
@@ -645,19 +662,9 @@ impl Component for MainView {
         device_list_slot.set_child(Some(device_list.widget()));
         content_slot.set_child(Some(&**adapter_page.widget()));
 
-        let show_unnamed_sender = sender.input_sender().clone();
-        preferences.settings().connect_changed(
-            Some("show-unnamed-devices"),
-            move |changed_settings, setting_key| {
-                show_unnamed_sender.emit(MainViewInput::ShowUnnamedDevices(
-                    changed_settings.boolean(setting_key),
-                ));
-            },
-        );
-
-        let auto_accept_sender = sender.input_sender().clone();
-        preferences.connect_auto_accept_changed(move || {
-            auto_accept_sender.emit(MainViewInput::AutoAcceptChanged);
+        let preference_sender = sender.input_sender().clone();
+        preferences.connect_preference_changes(move |preference_change| {
+            preference_sender.emit(MainViewInput::PreferenceChanged(preference_change));
         });
 
         let agent_session = session.clone();
@@ -699,6 +706,7 @@ impl Component for MainView {
             app_settings,
             adapter_rows,
             transfers,
+            prompt_center,
             device_list_slot: device_list_slot.clone(),
             content_slot: content_slot.clone(),
         };
@@ -750,7 +758,7 @@ impl Component for MainView {
                 self.device_list_slot
                     .set_child(Some(self.device_list.widget()));
             }
-            MainViewInput::AutoAcceptChanged => {
+            MainViewInput::PreferenceChanged(PreferenceChange::AutoAcceptSenders) => {
                 if let ContentPage::Device(device_page) = &self.content_page {
                     let accepts_files = self
                         .preferences
@@ -758,10 +766,17 @@ impl Component for MainView {
                     device_page.emit(DevicePageInput::AutoAcceptChanged(accepts_files));
                 }
             }
-            MainViewInput::ShowUnnamedDevices(show_unnamed_devices) => {
+            MainViewInput::PreferenceChanged(PreferenceChange::ShowUnnamedDevices(
+                show_unnamed_devices,
+            )) => {
                 self.device_list
                     .emit(DeviceListInput::ShowUnnamedDevices(show_unnamed_devices));
             }
+            MainViewInput::PreferenceChanged(
+                PreferenceChange::RunInBackground(_)
+                | PreferenceChange::StartAtLogin(_)
+                | PreferenceChange::Unrelated,
+            ) => {}
             MainViewInput::DeviceList(device_list_output) => {
                 self.handle_device_list_output(device_list_output, root, &sender);
             }
@@ -770,6 +785,21 @@ impl Component for MainView {
             }
             MainViewInput::AdapterPage(AdapterPageOutput::Failed(failure)) => {
                 root.add_toast(adw::Toast::new(&failure.to_string()));
+            }
+            MainViewInput::Transfers(TransfersOutput::DecisionNeeded(assessment)) => {
+                self.prompt_center
+                    .emit(PromptCenterInput::Requested(PromptRequest::Transfer(
+                        assessment,
+                    )));
+            }
+            MainViewInput::PromptCenter(PromptCenterOutput::TransferDecided {
+                incoming_transfer,
+                transfer_decision,
+            }) => {
+                self.transfers.emit(TransfersInput::Decided {
+                    incoming_transfer,
+                    transfer_decision,
+                });
             }
             MainViewInput::Transfers(TransfersOutput::ReceivingFile { file_name }) => {
                 root.add_toast(adw::Toast::new(&format!("Receiving {file_name}")));
@@ -812,7 +842,11 @@ impl Component for MainView {
                         .unwrap_or_else(|| requester.address.to_string()),
                     radio_label: self.radio_label(&requester.adapter_name),
                 };
-                present_pairing_request(pairing_request, &requester_description);
+                self.prompt_center
+                    .emit(PromptCenterInput::Requested(PromptRequest::Pairing {
+                        pairing_request,
+                        requester: requester_description,
+                    }));
             }
             MainViewCommand::ScanStarted {
                 generation,

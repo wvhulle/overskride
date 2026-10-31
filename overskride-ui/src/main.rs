@@ -5,34 +5,33 @@ mod app_actions;
 mod app_preferences;
 mod app_settings_page;
 mod app_window;
-mod attention_dialogs;
+mod attention_notifications;
 mod capability_overview;
 mod device_list;
 mod device_page;
 mod device_status;
+#[allow(dead_code)]
+mod icon_names {
+    include!(concat!(env!("OUT_DIR"), "/icon_names.rs"));
+}
 mod login_autostart;
 mod main_view;
 mod pairing_presentation;
-mod pairing_prompts;
 mod pairing_timeline;
+mod prompt_center;
 mod transfers_popover;
 mod tray_icon;
 mod widgets;
 
-use std::cell::Cell;
-
 use relm4::adw;
-use relm4::gtk::gio;
 use relm4::gtk::prelude::*;
 
-use crate::app_actions::{present_main_window, register_app_actions};
 use crate::app_preferences::{APPLICATION_ID, AppPreferences};
-use crate::app_window::AppWindow;
+use crate::app_window::{AppWindow, AppWindowInit};
 use crate::login_autostart::BACKGROUND_FLAG;
 
 fn main() {
-    gio::resources_register_include!("overskride.gresource")
-        .expect("the gresource is embedded at build time");
+    relm4_icons::initialize_icons(icon_names::GRESOURCE_BYTES, icon_names::RESOURCE_PREFIX);
     let (background_flags, forwarded_arguments): (Vec<String>, Vec<String>) =
         std::env::args().partition(|argument| argument == BACKGROUND_FLAG);
     let started_in_background = !background_flags.is_empty();
@@ -42,16 +41,10 @@ fn main() {
     application.set_accels_for_action("win.refresh-devices", &["<Control>r"]);
     application.set_accels_for_action("window.close", &["<Control>w"]);
     application.set_accels_for_action("app.quit", &["<Control>q"]);
-    let first_activation_pending = Cell::new(true);
-    application.connect_activate(move |_activated_application| {
-        let stay_hidden = first_activation_pending.replace(false) && started_in_background;
-        if !stay_hidden {
-            present_main_window();
-        }
-    });
     let relm_application = relm4::RelmApp::from_app(application)
-        .visible_on_activate(false)
+        .visible_on_activate(!started_in_background)
         .with_args(forwarded_arguments);
-    register_app_actions();
-    relm_application.run_async::<AppWindow>(AppPreferences::load());
+    relm_application.run_async::<AppWindow>(AppWindowInit {
+        preferences: AppPreferences::load(),
+    });
 }

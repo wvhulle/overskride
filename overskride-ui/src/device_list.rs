@@ -14,6 +14,7 @@ use relm4::typed_view::list::{RelmListItem, TypedListView};
 use relm4::{ComponentParts, ComponentSender, RelmWidgetExt, prelude::*};
 
 use crate::device_status::{pairing_status_badge, signal_icon_name, symbolic_device_icon_name};
+use crate::icon_names;
 
 const NAMED_ONLY_FILTER_INDEX: usize = 0;
 const NAMELESS_SECTION_TITLE: &str = "Without a Name";
@@ -304,7 +305,7 @@ impl Component for DeviceList {
             set_orientation: gtk::Orientation::Vertical,
 
             adw::StatusPage {
-                set_icon_name: Some("no-bluetooth-symbolic"),
+                set_icon_name: Some(icon_names::custom::NO_BLUETOOTH_SYMBOLIC),
                 set_title: "No Known Devices",
                 set_description: Some("Press Scan to find new ones"),
                 add_css_class: "compact",
