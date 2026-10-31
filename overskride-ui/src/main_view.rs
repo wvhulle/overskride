@@ -25,7 +25,8 @@ use crate::device_page::{
 use crate::pairing_prompts::{RequesterDescription, present_pairing_request};
 use crate::transfers_popover::{TransfersInit, TransfersInput, TransfersOutput, TransfersPopover};
 
-const SCAN_DURATION: Duration = Duration::from_secs(60);
+const SCAN_DURATION_SECONDS: u32 = 60;
+const SCAN_TICK: Duration = Duration::from_secs(1);
 const SETTINGS_TITLE: &str = "Settings";
 
 pub struct MainViewInit {
@@ -45,6 +46,7 @@ enum ScanState {
     Idle,
     Scanning {
         generation: u64,
+        remaining_seconds: u32,
         _discovery: DiscoverySession,
     },
 }
@@ -96,7 +98,7 @@ pub enum MainViewCommand {
         generation: u64,
         outcome: Result<DiscoverySession, BluetoothError>,
     },
-    ScanExpired(u64),
+    ScanTick(u64),
     AdapterLoaded {
         outcome: Result<AdapterSnapshot, BluetoothError>,
         after_switch: AfterAdapterSwitch,
@@ -145,6 +147,27 @@ fn launch_adapter_settings(
 impl MainView {
     fn is_scanning(&self) -> bool {
         matches!(self.scan_state, ScanState::Scanning { .. })
+    }
+
+    fn scan_row_title(&self) -> &'static str {
+        if self.is_scanning() {
+            "Looking for Nearby Devices"
+        } else {
+            "Scan for Nearby Devices"
+        }
+    }
+
+    fn scan_row_subtitle(&self) -> String {
+        match self.scan_state {
+            ScanState::Scanning {
+                remaining_seconds, ..
+            } => format!("{remaining_seconds} s left"),
+            ScanState::Idle => "Finds devices that are in pairing mode".to_string(),
+        }
+    }
+
+    fn scan_button_label(&self) -> &'static str {
+        if self.is_scanning() { "Stop" } else { "Scan" }
     }
 
     fn selected_radio_position(&self) -> u32 {
@@ -346,28 +369,6 @@ impl Component for MainView {
                     set_child = &adw::ToolbarView {
                         add_top_bar = &adw::HeaderBar {
                             pack_start: model.transfers.widget(),
-
-                            pack_end = &gtk::ToggleButton {
-                                set_tooltip_text: Some("Search for new devices for 60 seconds"),
-                                add_css_class: "flat",
-                                #[watch]
-                                #[block_signal(scan_handler)]
-                                set_active: model.is_scanning(),
-                                connect_toggled[sender] => move |scan_button| {
-                                    sender.input(MainViewInput::ScanToggled(scan_button.is_active()));
-                                } @scan_handler,
-
-                                gtk::Box {
-                                    set_spacing: 6,
-                                    gtk::Spinner {
-                                        #[watch]
-                                        set_spinning: model.is_scanning(),
-                                    },
-                                    gtk::Label {
-                                        set_label: "Scan",
-                                    },
-                                },
-                            },
                         },
 
                         #[wrap(Some)]
@@ -412,7 +413,44 @@ impl Component for MainView {
 
                                 adw::PreferencesGroup {
                                     set_title: "Devices",
-                                    set_description: Some("Known to this radio. Press Scan to find new ones."),
+                                    set_description: Some("Known to this radio, plus devices found by scanning."),
+
+                                    adw::ActionRow {
+                                        #[watch]
+                                        set_title: model.scan_row_title(),
+                                        #[watch]
+                                        set_subtitle: &model.scan_row_subtitle(),
+
+                                        add_suffix = &gtk::ToggleButton {
+                                            set_valign: gtk::Align::Center,
+                                            #[watch]
+                                            set_tooltip_text: Some(if model.is_scanning() {
+                                                "Stop looking for nearby devices"
+                                            } else {
+                                                "Look for nearby devices for one minute"
+                                            }),
+                                            #[watch]
+                                            #[block_signal(scan_handler)]
+                                            set_active: model.is_scanning(),
+                                            connect_toggled[sender] => move |scan_button| {
+                                                sender.input(MainViewInput::ScanToggled(scan_button.is_active()));
+                                            } @scan_handler,
+
+                                            gtk::Box {
+                                                set_spacing: 6,
+
+                                                adw::Spinner {
+                                                    #[watch]
+                                                    set_visible: model.is_scanning(),
+                                                },
+
+                                                gtk::Label {
+                                                    #[watch]
+                                                    set_label: model.scan_button_label(),
+                                                },
+                                            },
+                                        },
+                                    },
 
                                     #[local_ref]
                                     device_list_slot -> adw::Bin {},
@@ -647,19 +685,39 @@ impl Component for MainView {
                 Ok(discovery) if generation == self.scan_generation => {
                     self.scan_state = ScanState::Scanning {
                         generation,
+                        remaining_seconds: SCAN_DURATION_SECONDS,
                         _discovery: discovery,
                     };
-                    sender.oneshot_command(async move {
-                        tokio::time::sleep(SCAN_DURATION).await;
-                        MainViewCommand::ScanExpired(generation)
+                    sender.command(move |command_output, shutdown| {
+                        shutdown
+                            .register(
+                                futures::stream::iter(0..SCAN_DURATION_SECONDS)
+                                    .then(|_elapsed_seconds| tokio::time::sleep(SCAN_TICK))
+                                    .for_each(move |()| {
+                                        command_output.emit(MainViewCommand::ScanTick(generation));
+                                        futures::future::ready(())
+                                    }),
+                            )
+                            .drop_on_shutdown()
                     });
                 }
                 Ok(_stale_discovery) => {}
                 Err(scan_error) => root.add_toast(adw::Toast::new(&scan_error.to_string())),
             },
-            MainViewCommand::ScanExpired(expired_generation) => {
-                if matches!(self.scan_state, ScanState::Scanning { generation, .. } if generation == expired_generation)
-                {
+            MainViewCommand::ScanTick(ticked_generation) => {
+                let ScanState::Scanning {
+                    generation,
+                    remaining_seconds,
+                    ..
+                } = &mut self.scan_state
+                else {
+                    return;
+                };
+                if *generation != ticked_generation {
+                    return;
+                }
+                *remaining_seconds = remaining_seconds.saturating_sub(1);
+                if *remaining_seconds == 0 {
                     self.scan_state = ScanState::Idle;
                 }
             }
