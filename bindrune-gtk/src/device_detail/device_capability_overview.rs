@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use bindrune_bluez::remote_device::advertised_device_capabilities::{
+use bindrune_bluez::remote_device::advertised_service_uuids_and_capabilities::{
     CapabilityCategory, DeviceCapability,
 };
 use relm4::{

@@ -1,6 +1,6 @@
 use bindrune_bluez::{
     bluetooth_adapter::{
-        adapter_state_snapshot::{AdapterSnapshot, read_adapter},
+        adapter_snapshot_and_discovery::{AdapterSnapshot, read_adapter},
         adapter_udev_hardware::RadioDescription,
     },
     bluez_dbus_session::BluetoothSession,

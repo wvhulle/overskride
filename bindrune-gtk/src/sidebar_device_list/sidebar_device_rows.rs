@@ -5,8 +5,7 @@ use bindrune_bluez::{
     bluez_operation_error::BluetoothError,
     remote_device::{
         remote_device_change_stream::{DeviceChange, device_changes},
-        remote_device_snapshot::DeviceSnapshot,
-        sidebar_device_sort_order::compare_devices,
+        remote_device_snapshot::{DeviceSnapshot, compare_devices},
     },
 };
 use futures::StreamExt;

@@ -6,19 +6,15 @@ use bindrune_bluez::{
         SERVICE_AUTHORIZATION_TIMEOUT, ServiceAuthorizationAnswer, ServiceAuthorizationRequest,
     },
     obex_file_transfer::obex_file_transfers::IncomingTransfer,
-    remote_device::gatt_service_uuid_names::describe_service,
+    remote_device::advertised_service_uuids_and_capabilities::describe_service,
 };
 use relm4::{adw, adw::prelude::*, gtk, prelude::*};
 
 use crate::{
     header_transfer_popover::file_transfer_popover::{SenderAssessment, TransferDecision},
-    incoming_request_prompts::{
-        prompt_alert_dialogs::{
-            AlertChoice, CANCEL_CHOICE, answer_entry, build_alert, plain_choice, suggested_choice,
-        },
-        prompt_dialog_and_notification_delivery::{
-            notify_about_prompt, window_needs_attention, withdraw_prompt_notification,
-        },
+    incoming_request_prompts::prompt_dialog_and_notification_delivery::{
+        AlertChoice, CANCEL_CHOICE, answer_entry, build_alert, notify_about_prompt, plain_choice,
+        suggested_choice, window_needs_attention, withdraw_prompt_notification,
     },
 };
 

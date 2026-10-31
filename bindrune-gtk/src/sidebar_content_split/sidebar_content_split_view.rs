@@ -5,9 +5,10 @@ use std::{
 
 use bindrune_bluez::{
     bluetooth_adapter::{
-        adapter_state_snapshot::{AdapterSnapshot, read_adapter},
+        adapter_snapshot_and_discovery::{
+            AdapterSnapshot, DiscoverySession, read_adapter, start_discovery,
+        },
         adapter_udev_hardware::RadioDescription,
-        device_discovery_session::{DiscoverySession, start_discovery},
     },
     bluez_dbus_session::{BluetoothSession, DeviceLocation},
     bluez_operation_error::BluetoothError,
@@ -813,7 +814,7 @@ impl Component for MainView {
             });
         let about_action: relm4::actions::RelmAction<AboutAction> =
             relm4::actions::RelmAction::new_stateless(|_about_action| {
-                crate::background_application_lifecycle::about_application_dialog::show_about()
+                crate::background_application_lifecycle::application_menu_actions::show_about()
             });
         let mut window_actions = relm4::actions::RelmActionGroup::<MainViewActionGroup>::new();
         window_actions.add_action(refresh_action);

@@ -50,7 +50,7 @@ use crate::{
             pairing_timeline_widgets::{PairingTimeline, PairingTimelineInput},
         },
     },
-    incoming_request_prompts::prompt_alert_dialogs::{
+    incoming_request_prompts::prompt_dialog_and_notification_delivery::{
         CANCEL_CHOICE, build_alert, choose_response, destructive_choice,
     },
     shared_device_appearance::{

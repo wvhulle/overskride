@@ -1,7 +1,7 @@
 use std::time::{Duration, Instant};
 
 use bindrune_bluez::{
-    bluetooth_adapter::adapter_state_snapshot::{
+    bluetooth_adapter::adapter_snapshot_and_discovery::{
         AdapterSnapshot, adapter_changes, set_alias, set_discoverable_timeout, set_powered,
         set_visible_for_pairing,
     },
@@ -18,10 +18,7 @@ use uom::{
     },
 };
 
-use crate::{
-    shared_page_widget_templates::{ClampedPage, PageHeader},
-    shared_protocol_info_button::protocol_info_button,
-};
+use crate::shared_page_widget_templates::{ClampedPage, PageHeader, protocol_info_button};
 
 const COUNTDOWN_TICK: Duration = Duration::from_secs(1);
 const OFFERED_VISIBILITY_TIMEOUTS: [Duration; 4] = [

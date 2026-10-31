@@ -9,7 +9,7 @@ use crate::{
         StepButtonSlot, StepNodeState, StepPresentation, TimelineAction, TimelinePresentation,
     },
     icon_names,
-    shared_protocol_info_button::protocol_info_button,
+    shared_page_widget_templates::protocol_info_button,
 };
 
 struct PolicyChoice {

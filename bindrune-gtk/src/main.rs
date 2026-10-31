@@ -3,16 +3,15 @@ mod application_preferences_page;
 mod background_application_lifecycle;
 mod device_detail;
 mod header_transfer_popover;
+mod incoming_request_prompts;
+mod shared_device_appearance;
+mod shared_page_widget_templates;
+mod sidebar_content_split;
+mod sidebar_device_list;
 #[allow(dead_code)]
 mod icon_names {
     include!(concat!(env!("OUT_DIR"), "/icon_names.rs"));
 }
-mod incoming_request_prompts;
-mod shared_device_appearance;
-mod shared_page_widget_templates;
-mod shared_protocol_info_button;
-mod sidebar_content_split;
-mod sidebar_device_list;
 
 use relm4::{adw, gtk::prelude::*};
 
