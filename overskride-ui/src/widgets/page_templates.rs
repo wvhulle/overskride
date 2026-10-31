@@ -1,7 +1,4 @@
-use relm4::adw;
-use relm4::adw::prelude::*;
-use relm4::gtk;
-use relm4::{RelmWidgetExt, WidgetTemplate};
+use relm4::{RelmWidgetExt, WidgetTemplate, adw, adw::prelude::*, gtk};
 
 #[relm4::widget_template(pub)]
 impl WidgetTemplate for ClampedPage {

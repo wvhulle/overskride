@@ -1,11 +1,12 @@
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
-use pulseaudio::callbacks::ListResult;
-use pulseaudio::context::{Context, FlagSet as ContextFlagSet, State as ContextState};
-use pulseaudio::mainloop::standard::{IterateResult, Mainloop};
-use pulseaudio::operation::State as OperationState;
-use pulseaudio::proplist::{Proplist, properties};
+use pulseaudio::{
+    callbacks::ListResult,
+    context::{Context, FlagSet as ContextFlagSet, State as ContextState},
+    mainloop::standard::{IterateResult, Mainloop},
+    operation::State as OperationState,
+    proplist::{Proplist, properties},
+};
 
 use crate::bluetooth_error::{AudioServerFailure, BluetoothError};
 

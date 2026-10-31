@@ -1,7 +1,6 @@
 use std::fmt;
 
-use crate::bluetooth_error::BluezFailure;
-use crate::pairing_steps::PairingStep;
+use crate::{bluetooth_error::BluezFailure, pairing_steps::PairingStep};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PairStepFailure {
@@ -128,7 +127,8 @@ impl fmt::Display for BondingFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::LinkKeyNotStored => formatter.write_str(
-                "Pairing finished, but BlueZ did not store a link key. Put the device in pairing mode and press Pair Again.",
+                "Pairing finished, but BlueZ did not store a link key. Put the device in pairing \
+                 mode and press Pair Again.",
             ),
             Self::Bluez(bluez_failure) => write!(formatter, "{bluez_failure}"),
         }
@@ -139,7 +139,8 @@ impl fmt::Display for AuthorizationFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::TrustNeedsBond => formatter.write_str(
-                "Trust can't be saved: this device is paired but not bonded (no stored link key). Use Pair Again.",
+                "Trust can't be saved: this device is paired but not bonded (no stored link key). \
+                 Use Pair Again.",
             ),
             Self::Bluez(bluez_failure) => write!(formatter, "{bluez_failure}"),
         }

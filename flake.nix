@@ -34,6 +34,22 @@
           }
         );
 
+      nightlyRustfmt = pkgs: pkgs.rust-bin.nightly."2026-07-19".rustfmt;
+
+      treefmtWithNightlyRustfmt =
+        pkgs:
+        pkgs.writeShellApplication {
+          name = "treefmt";
+          runtimeInputs = [
+            pkgs.treefmt
+            pkgs.nixfmt
+            (nightlyRustfmt pkgs)
+          ];
+          text = ''
+            exec treefmt "$@"
+          '';
+        };
+
       overskrideBuild =
         { pkgs, craneLib }:
         let
@@ -188,6 +204,18 @@
           };
         in
         {
+          formatting =
+            pkgs.runCommand "formatting-check"
+              {
+                nativeBuildInputs = [ (treefmtWithNightlyRustfmt pkgs) ];
+              }
+              ''
+                cp -r ${./.} source
+                chmod -R u+w source
+                cd source
+                treefmt --ci --tree-root .
+                touch $out
+              '';
           nixos-background-service =
             backgroundServiceSystem.config.systemd.user.units."overskride.service".unit;
           tests = craneLib.cargoTest (
@@ -203,7 +231,7 @@
         }
       );
 
-      formatter = forEachSystem ({ pkgs, ... }: pkgs.nixfmt);
+      formatter = forEachSystem ({ pkgs, ... }: treefmtWithNightlyRustfmt pkgs);
 
       devShells = forEachSystem (
         { pkgs, craneLib }@systemContext:
@@ -216,6 +244,9 @@
               builtOverskride.commonArgs.nativeBuildInputs
               ++ builtOverskride.commonArgs.buildInputs
               ++ [
+                (treefmtWithNightlyRustfmt pkgs)
+                (nightlyRustfmt pkgs)
+                pkgs.nixfmt
                 pkgs.desktop-file-utils
                 pkgs.appstream
               ];

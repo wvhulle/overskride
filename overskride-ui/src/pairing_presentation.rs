@@ -1,24 +1,32 @@
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
-use overskride_bluetooth::connection_drops::ConnectionHistory;
-use overskride_bluetooth::device_snapshot::{
-    BatteryReading, DeviceClass, DeviceSnapshot, DistanceEstimate, SignalStrength,
+use overskride_bluetooth::{
+    connection_drops::ConnectionHistory,
+    device_snapshot::{
+        BatteryReading, DeviceClass, DeviceSnapshot, DistanceEstimate, SignalStrength,
+    },
+    kernel_input_devices::{KernelInputBinding, KernelInputDevices},
+    pairing_failure::PairingFailure,
+    pairing_steps::{
+        ConnectionPolicy, PAIRING_STEP_DEFINITIONS, PairingStep, applicable_steps,
+        connection_policy, first_missing_step, is_step_applicable, is_step_done, step_definition,
+    },
+    radio_bonds::{RadioBond, RadioMembership},
+    report_timing::{NOTICEABLE_GAP, ReportTiming, ReportTimingSample},
 };
-use overskride_bluetooth::kernel_input_devices::{KernelInputBinding, KernelInputDevices};
-use overskride_bluetooth::pairing_failure::PairingFailure;
-use overskride_bluetooth::pairing_steps::{
-    ConnectionPolicy, PAIRING_STEP_DEFINITIONS, PairingStep, applicable_steps, connection_policy,
-    first_missing_step, is_step_applicable, is_step_done, step_definition,
+use uom::{
+    fmt::DisplayStyle,
+    si::{
+        f32::{Ratio, Time},
+        frequency::hertz,
+        length::meter,
+        ratio::percent,
+        time::{millisecond, second},
+    },
 };
-use overskride_bluetooth::radio_bonds::{RadioBond, RadioMembership};
-use overskride_bluetooth::report_timing::{NOTICEABLE_GAP, ReportTiming, ReportTimingSample};
-use uom::fmt::DisplayStyle;
-use uom::si::f32::{Ratio, Time};
-use uom::si::frequency::hertz;
-use uom::si::length::meter;
-use uom::si::ratio::percent;
-use uom::si::time::{millisecond, second};
 
 use crate::device_status::{SignalQuality, input_device_missing};
 
@@ -946,11 +954,12 @@ fn kernel_input_rows(kernel_input_devices: &KernelInputDevices) -> Vec<PropertyR
 mod tests {
     use std::collections::{BTreeSet, HashMap};
 
-    use overskride_bluetooth::device_guess::DeviceAppearance;
-    use overskride_bluetooth::device_snapshot::{Manufacturer, TransmitPower};
-    use overskride_bluetooth::session::DeviceLocation;
-
-    use overskride_bluetooth::pairing_failure::BondingFailure;
+    use overskride_bluetooth::{
+        device_guess::DeviceAppearance,
+        device_snapshot::{Manufacturer, TransmitPower},
+        pairing_failure::BondingFailure,
+        session::DeviceLocation,
+    };
 
     use super::*;
 

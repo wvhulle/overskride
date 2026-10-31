@@ -1,41 +1,41 @@
-use std::collections::{BTreeMap, HashMap};
-use std::time::{Duration, Instant};
+use std::{
+    collections::{BTreeMap, HashMap},
+    time::{Duration, Instant},
+};
 
 use futures::StreamExt;
-use overskride_bluetooth::adapter_state::{AdapterSnapshot, read_adapter};
-use overskride_bluetooth::bluetooth_error::BluetoothError;
-use overskride_bluetooth::connection_drops::{ConnectionDrop, ConnectionHistory, connection_drops};
-use overskride_bluetooth::device_actions::{connect_device, disconnect_device, read_device};
-use overskride_bluetooth::device_changes::DeviceChange;
-use overskride_bluetooth::device_snapshot::DeviceSnapshot;
-use overskride_bluetooth::discovery::{DiscoverySession, start_discovery};
-use overskride_bluetooth::pairing_agent::{AgentPolicy, PairingRequest, pairing_requests};
-use overskride_bluetooth::pairing_failure::ConnectionStepFailure;
-use overskride_bluetooth::radios::RadioDescription;
-use overskride_bluetooth::session::{BluetoothSession, DeviceLocation};
-use relm4::adw;
-use relm4::adw::prelude::*;
-use relm4::gtk;
-use relm4::prelude::*;
-
-use relm4::factory::FactoryVecDeque;
-
-use crate::adapter_page::{AdapterPage, AdapterPageInit, AdapterPageInput, AdapterPageOutput};
-use crate::adapter_row::{AdapterRow, AdapterRowInit};
-use crate::app_actions::QuitAction;
-use crate::app_actions::{AnswerDialogAction, AppActionGroup};
-use crate::app_preferences::{AppPreferences, PreferenceChange};
-use crate::app_settings_page::AppSettingsPage;
-use crate::device_list::{DeviceList, DeviceListInput, DeviceListOutput, DeviceListSource};
-use crate::device_page::{
-    DevicePage, DevicePageInit, DevicePageInput, DevicePageOutput, ObexAvailability,
+use overskride_bluetooth::{
+    adapter_state::{AdapterSnapshot, read_adapter},
+    bluetooth_error::BluetoothError,
+    connection_drops::{ConnectionDrop, ConnectionHistory, connection_drops},
+    device_actions::{connect_device, disconnect_device, read_device},
+    device_changes::DeviceChange,
+    device_snapshot::DeviceSnapshot,
+    discovery::{DiscoverySession, start_discovery},
+    pairing_agent::{AgentPolicy, PairingRequest, pairing_requests},
+    pairing_failure::ConnectionStepFailure,
+    radios::RadioDescription,
+    session::{BluetoothSession, DeviceLocation},
 };
-use crate::prompt_center::{
-    PromptCenter, PromptCenterInput, PromptCenterOutput, PromptRequest, RequesterDescription,
-    answer_from_notification_target,
+use relm4::{adw, adw::prelude::*, factory::FactoryVecDeque, gtk, prelude::*};
+
+use crate::{
+    adapter_page::{AdapterPage, AdapterPageInit, AdapterPageInput, AdapterPageOutput},
+    adapter_row::{AdapterRow, AdapterRowInit},
+    app_actions::{AnswerDialogAction, AppActionGroup, QuitAction},
+    app_preferences::{AppPreferences, PreferenceChange},
+    app_settings_page::AppSettingsPage,
+    device_list::{DeviceList, DeviceListInput, DeviceListOutput, DeviceListSource},
+    device_page::{
+        DevicePage, DevicePageInit, DevicePageInput, DevicePageOutput, ObexAvailability,
+    },
+    prompt_center::{
+        PromptCenter, PromptCenterInput, PromptCenterOutput, PromptRequest, RequesterDescription,
+        answer_from_notification_target,
+    },
+    transfers_popover::{TransfersInit, TransfersInput, TransfersOutput, TransfersPopover},
+    tray_icon::{TrayContent, TrayDevice, TrayRequest},
 };
-use crate::transfers_popover::{TransfersInit, TransfersInput, TransfersOutput, TransfersPopover};
-use crate::tray_icon::{TrayContent, TrayDevice, TrayRequest};
 
 const SCAN_DURATION_SECONDS: u32 = 60;
 const SCAN_TICK: Duration = Duration::from_secs(1);

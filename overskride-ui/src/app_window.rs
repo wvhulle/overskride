@@ -1,27 +1,35 @@
-use overskride_bluetooth::adapter_state::{AdapterSnapshot, read_adapter};
-use overskride_bluetooth::bluetooth_error::BluetoothError;
-use overskride_bluetooth::obex_transfers::ObexConnection;
-use overskride_bluetooth::radios::RadioDescription;
-use overskride_bluetooth::session::BluetoothSession;
-use relm4::adw;
-use relm4::adw::prelude::*;
-use relm4::component::{AsyncComponent, AsyncComponentParts, AsyncComponentSender};
-use relm4::gtk;
-use relm4::prelude::*;
-
 use ksni::TrayMethods;
-use relm4::actions::{RelmAction, RelmActionGroup};
+use overskride_bluetooth::{
+    adapter_state::{AdapterSnapshot, read_adapter},
+    bluetooth_error::BluetoothError,
+    obex_transfers::ObexConnection,
+    radios::RadioDescription,
+    session::BluetoothSession,
+};
+use relm4::{
+    actions::{RelmAction, RelmActionGroup},
+    adw,
+    adw::prelude::*,
+    component::{AsyncComponent, AsyncComponentParts, AsyncComponentSender},
+    gtk,
+    prelude::*,
+};
 
-use crate::app_actions::{AppActionGroup, QuitAction, ShowWindowAction};
-use crate::app_preferences::{AppPreferences, PreferenceChange};
-use crate::device_page::ObexAvailability;
-use crate::icon_names;
-use crate::login_autostart::{LoginAutostartError, apply_login_autostart, managed_by_systemd};
-use crate::main_view::{MainView, MainViewInit, MainViewInput, MainViewOutput};
-use crate::tray_icon::{OverskrideTray, TrayContent, TrayRequest, TrayScope};
+use crate::{
+    app_actions::{AppActionGroup, QuitAction, ShowWindowAction},
+    app_preferences::{AppPreferences, PreferenceChange},
+    device_page::ObexAvailability,
+    icon_names,
+    login_autostart::{LoginAutostartError, apply_login_autostart, managed_by_systemd},
+    main_view::{MainView, MainViewInit, MainViewInput, MainViewOutput},
+    tray_icon::{OverskrideTray, TrayContent, TrayRequest, TrayScope},
+};
 
 const NARROW_WINDOW_CONDITION: &str = "max-width: 700sp";
-const BLUETOOTH_SERVICE_HELP: &str = "Start the Bluetooth service and open Overskride again:\n\nsudo systemctl enable --now bluetooth\n\nIf the service does not exist, install the bluez package for your distribution first.";
+const BLUETOOTH_SERVICE_HELP: &str = "Start the Bluetooth service and open Overskride \
+                                      again:\n\nsudo systemctl enable --now bluetooth\n\nIf the \
+                                      service does not exist, install the bluez package for your \
+                                      distribution first.";
 
 struct ReadyBluetooth {
     session: BluetoothSession,

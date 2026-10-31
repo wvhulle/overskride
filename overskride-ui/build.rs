@@ -1,5 +1,4 @@
-use std::path::PathBuf;
-use std::process::Command;
+use std::{path::PathBuf, process::Command};
 
 const APPLICATION_ID: &str = "io.github.kaii_lb.Overskride";
 const CUSTOM_ICON_DIRECTORY: &str = "src/icons/symbolic/actions";

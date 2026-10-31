@@ -4,8 +4,10 @@ use bluer::agent::{Agent, ReqError, ReqResult};
 use futures::{FutureExt, Stream};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::bluetooth_error::BluetoothError;
-use crate::session::{BluetoothSession, DeviceLocation};
+use crate::{
+    bluetooth_error::BluetoothError,
+    session::{BluetoothSession, DeviceLocation},
+};
 
 pub const SERVICE_AUTHORIZATION_TIMEOUT: Duration = Duration::from_secs(25);
 

@@ -1,6 +1,8 @@
-use crate::device_snapshot::{DeviceSnapshot, SignalStrength};
-use crate::kernel_input_devices::KernelInputBinding;
-use crate::pairing_failure::PairingFailure;
+use crate::{
+    device_snapshot::{DeviceSnapshot, SignalStrength},
+    kernel_input_devices::KernelInputBinding,
+    pairing_failure::PairingFailure,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PairingStep {
@@ -31,37 +33,70 @@ pub const PAIRING_STEP_DEFINITIONS: [PairingStepDefinition; 6] = [
         step: PairingStep::Pairing,
         title: "Pairing",
         protocol_term: "Inquiry + Secure Simple Pairing",
-        protocol_details: "A new device must first be discoverable: in pairing mode it answers the inquiry packets this computer sends while scanning (the Scan button in the sidebar), which is how it appears in the list. Pairing then exchanges input/output capabilities and public keys and authenticates both sides; devices without a display or keyboard, such as gamepads, use the Just Works model. The result is a shared link key. Already bonded devices skip all of this and reconnect directly.",
+        protocol_details: "A new device must first be discoverable: in pairing mode it answers \
+                           the inquiry packets this computer sends while scanning (the Scan \
+                           button in the sidebar), which is how it appears in the list. Pairing \
+                           then exchanges input/output capabilities and public keys and \
+                           authenticates both sides; devices without a display or keyboard, such \
+                           as gamepads, use the Just Works model. The result is a shared link \
+                           key. Already bonded devices skip all of this and reconnect directly.",
     },
     PairingStepDefinition {
         step: PairingStep::Bonding,
         title: "Bonding",
         protocol_term: "Link key stored",
-        protocol_details: "Bonding means keeping the link key after pairing. BlueZ writes it to /var/lib/bluetooth/<adapter>/<device>/info, separately for every radio. Without a stored key the next connection needs a new pairing, and BlueZ forgets the device once it disconnects.",
+        protocol_details: "Bonding means keeping the link key after pairing. BlueZ writes it to \
+                           /var/lib/bluetooth/<adapter>/<device>/info, separately for every \
+                           radio. Without a stored key the next connection needs a new pairing, \
+                           and BlueZ forgets the device once it disconnects.",
     },
     PairingStepDefinition {
         step: PairingStep::Authorization,
         title: "Authorization",
         protocol_term: "BlueZ connection policy",
-        protocol_details: "Not part of the Bluetooth protocol. When a device opens a profile connection (input, audio), BlueZ rejects it if the device is blocked, lets it through if the device is trusted, and otherwise asks the pairing agent. The setting is saved next to the link key, so it only survives for bonded devices.",
+        protocol_details: "Not part of the Bluetooth protocol. When a device opens a profile \
+                           connection (input, audio), BlueZ rejects it if the device is blocked, \
+                           lets it through if the device is trusted, and otherwise asks the \
+                           pairing agent. The setting is saved next to the link key, so it only \
+                           survives for bonded devices.",
     },
     PairingStepDefinition {
         step: PairingStep::Signal,
         title: "Signal",
         protocol_term: "RSSI",
-        protocol_details: "BlueZ reports the received signal strength (RSSI) of the inquiry responses and advertisements a device sends while this computer scans. A measured signal means the device is powered on and within range. Headsets and controllers then reconnect by themselves, but phones and computers usually wait until one side starts the connection, for example with the Connect button. The distance is a rough estimate from the signal strength and the transmit power.",
+        protocol_details: "BlueZ reports the received signal strength (RSSI) of the inquiry \
+                           responses and advertisements a device sends while this computer scans. \
+                           A measured signal means the device is powered on and within range. \
+                           Headsets and controllers then reconnect by themselves, but phones and \
+                           computers usually wait until one side starts the connection, for \
+                           example with the Connect button. The distance is a rough estimate from \
+                           the signal strength and the transmit power.",
     },
     PairingStepDefinition {
         step: PairingStep::Connection,
         title: "Connection",
         protocol_term: "ACL link + L2CAP channels",
-        protocol_details: "The device pages this computer, both sides authenticate with the stored link key and encrypt the ACL link, then the profile opens its L2CAP channels. For input devices these are the HID control (PSM 17) and interrupt (PSM 19) channels.\n\nWhen no packet gets through for the link supervision timeout, BlueZ drops the connection and reports the reason Timeout, counted here as signal lost. Input devices send HID reports continuously or on every change; gaps between reports are felt as lag. Signal strength and link quality of a connected device are only available to root, so they are not shown. A common cause of lag is 2.4 GHz Wi-Fi sharing the antenna of a combined Wi-Fi and Bluetooth chip; switching Wi-Fi to 5 GHz often helps.",
+        protocol_details: "The device pages this computer, both sides authenticate with the \
+                           stored link key and encrypt the ACL link, then the profile opens its \
+                           L2CAP channels. For input devices these are the HID control (PSM 17) \
+                           and interrupt (PSM 19) channels.\n\nWhen no packet gets through for \
+                           the link supervision timeout, BlueZ drops the connection and reports \
+                           the reason Timeout, counted here as signal lost. Input devices send \
+                           HID reports continuously or on every change; gaps between reports are \
+                           felt as lag. Signal strength and link quality of a connected device \
+                           are only available to root, so they are not shown. A common cause of \
+                           lag is 2.4 GHz Wi-Fi sharing the antenna of a combined Wi-Fi and \
+                           Bluetooth chip; switching Wi-Fi to 5 GHz often helps.",
     },
     PairingStepDefinition {
         step: PairingStep::InputDevice,
         title: "Input Device",
         protocol_term: "Linux HID driver",
-        protocol_details: "Happens automatically. BlueZ passes the HID reports to the kernel, which binds a HID driver (hid-playstation for DualSense controllers). The driver creates the input devices that games and Steam read from /dev/input, such as buttons, motion sensors and touchpad, and reports the battery level.",
+        protocol_details: "Happens automatically. BlueZ passes the HID reports to the kernel, \
+                           which binds a HID driver (hid-playstation for DualSense controllers). \
+                           The driver creates the input devices that games and Steam read from \
+                           /dev/input, such as buttons, motion sensors and touchpad, and reports \
+                           the battery level.",
     },
 ];
 

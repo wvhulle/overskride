@@ -23,12 +23,13 @@ mod transfers_popover;
 mod tray_icon;
 mod widgets;
 
-use relm4::adw;
-use relm4::gtk::prelude::*;
+use relm4::{adw, gtk::prelude::*};
 
-use crate::app_preferences::{APPLICATION_ID, AppPreferences};
-use crate::app_window::{AppWindow, AppWindowInit};
-use crate::login_autostart::BACKGROUND_FLAG;
+use crate::{
+    app_preferences::{APPLICATION_ID, AppPreferences},
+    app_window::{AppWindow, AppWindowInit},
+    login_autostart::BACKGROUND_FLAG,
+};
 
 fn main() {
     relm4_icons::initialize_icons(icon_names::GRESOURCE_BYTES, icon_names::RESOURCE_PREFIX);

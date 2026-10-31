@@ -235,32 +235,46 @@ impl fmt::Display for ConnectionReason {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::PageTimeout | Self::CreateSocket | Self::Timeout => {
-                "The device did not answer. Turn it on and keep it within a few meters, then press Connect again."
+                "The device did not answer. Turn it on and keep it within a few meters, then press \
+                 Connect again."
             }
             Self::KeyMissing => {
-                "The device no longer knows this computer, for example after it was paired with another one. Put it in pairing mode and press Pair Again."
+                "The device no longer knows this computer, for example after it was paired with \
+                 another one. Put it in pairing mode and press Pair Again."
             }
             Self::Refused | Self::AbortedByRemote => {
-                "The device refused the connection. Disconnect it from other phones or computers, then try again."
+                "The device refused the connection. Disconnect it from other phones or computers, \
+                 then try again."
             }
             Self::ServiceSearch | Self::GattBrowsing => {
-                "The device connected but did not list its services. Wait a few seconds after turning it on, then try again."
+                "The device connected but did not list its services. Wait a few seconds after \
+                 turning it on, then try again."
             }
-            Self::AdapterNotPowered => "Bluetooth is turned off on this radio. Turn on Powered in Bluetooth Settings.",
+            Self::AdapterNotPowered => {
+                "Bluetooth is turned off on this radio. Turn on Powered in Bluetooth Settings."
+            }
             Self::Busy | Self::ConcurrentConnectionLimit => {
-                "The radio is busy with another connection attempt. Wait a few seconds, then try again."
+                "The radio is busy with another connection attempt. Wait a few seconds, then try \
+                 again."
             }
             Self::AlreadyConnected => "The device is already connected.",
-            Self::Canceled | Self::AbortedByLocal => "The connection attempt was canceled on this computer.",
-            Self::NotSupported | Self::InvalidArguments => "This radio does not support connecting to this kind of device.",
+            Self::Canceled | Self::AbortedByLocal => {
+                "The connection attempt was canceled on this computer."
+            }
+            Self::NotSupported | Self::InvalidArguments => {
+                "This radio does not support connecting to this kind of device."
+            }
             Self::BadSocket | Self::MemoryAllocation => {
-                "BlueZ ran into an internal problem. Restart the Bluetooth service with `systemctl restart bluetooth`, then try again."
+                "BlueZ ran into an internal problem. Restart the Bluetooth service with `systemctl \
+                 restart bluetooth`, then try again."
             }
             Self::LinkProtocolError => {
-                "The radio link broke down while connecting, often because of interference. Move closer to the computer and try again."
+                "The radio link broke down while connecting, often because of interference. Move \
+                 closer to the computer and try again."
             }
             Self::Unknown => {
-                "BlueZ could not tell why the connection failed. Turn the device off and on again, then press Connect."
+                "BlueZ could not tell why the connection failed. Turn the device off and on again, \
+                 then press Connect."
             }
         })
     }
@@ -270,27 +284,42 @@ impl fmt::Display for BluezRequestFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
             Self::ConnectionAttemptFailed => {
-                "The device did not answer. Turn it on and keep it within a few meters, then try again."
+                "The device did not answer. Turn it on and keep it within a few meters, then try \
+                 again."
             }
             Self::AuthenticationFailed | Self::AuthenticationRejected => {
-                "Pairing was rejected: the PIN or passkey did not match, or the device left pairing mode. Put it in pairing mode and press Pair again."
+                "Pairing was rejected: the PIN or passkey did not match, or the device left \
+                 pairing mode. Put it in pairing mode and press Pair again."
             }
             Self::AuthenticationTimeout => {
-                "The device did not finish pairing in time. Keep it in pairing mode and press Pair again."
+                "The device did not finish pairing in time. Keep it in pairing mode and press Pair \
+                 again."
             }
             Self::AuthenticationCanceled => "Pairing was canceled.",
             Self::AlreadyConnected => "The device is already connected.",
             Self::AlreadyExists => "The device is already paired.",
-            Self::InProgress => "Another attempt is still running. Wait a few seconds, then try again.",
-            Self::InvalidArguments => "BlueZ rejected the request as invalid.",
-            Self::NotReady => "Bluetooth is turned off on this radio. Turn on Powered in Bluetooth Settings.",
-            Self::DoesNotExist => "BlueZ no longer knows this device. Press Scan to find it again.",
-            Self::NotAuthorized => "BlueZ refused the request. Check that your user may use Bluetooth.",
-            Self::NotSupported | Self::NotAvailable => "This radio or device does not support the request.",
-            Self::ServiceConnectionLost => {
-                "The connection to the Bluetooth service was lost. Check that bluetoothd is running, then restart Overskride."
+            Self::InProgress => {
+                "Another attempt is still running. Wait a few seconds, then try again."
             }
-            Self::Failed => "BlueZ could not complete the request. Turn the device off and on again, then retry.",
+            Self::InvalidArguments => "BlueZ rejected the request as invalid.",
+            Self::NotReady => {
+                "Bluetooth is turned off on this radio. Turn on Powered in Bluetooth Settings."
+            }
+            Self::DoesNotExist => "BlueZ no longer knows this device. Press Scan to find it again.",
+            Self::NotAuthorized => {
+                "BlueZ refused the request. Check that your user may use Bluetooth."
+            }
+            Self::NotSupported | Self::NotAvailable => {
+                "This radio or device does not support the request."
+            }
+            Self::ServiceConnectionLost => {
+                "The connection to the Bluetooth service was lost. Check that bluetoothd is \
+                 running, then restart Overskride."
+            }
+            Self::Failed => {
+                "BlueZ could not complete the request. Turn the device off and on again, then \
+                 retry."
+            }
         })
     }
 }
@@ -309,16 +338,21 @@ impl fmt::Display for BluezFailure {
 impl fmt::Display for ObexServiceFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter.write_str(match self {
-            Self::SessionBusUnavailable => "No D-Bus session bus is running, so files cannot be sent or received.",
+            Self::SessionBusUnavailable => {
+                "No D-Bus session bus is running, so files cannot be sent or received."
+            }
             Self::ServiceMissing => {
-                "The file transfer service (obexd) is not running. Install bluez-obex or start obex.service, then try again."
+                "The file transfer service (obexd) is not running. Install bluez-obex or start \
+                 obex.service, then try again."
             }
             Self::NoReply => "The file transfer service did not answer in time. Try again.",
             Self::InvalidArguments => "The file transfer service rejected the request as invalid.",
             Self::Forbidden => "The device refused the file transfer.",
             Self::InProgress => "Another file transfer is still running. Wait for it to finish.",
             Self::TransferGone => "The transfer no longer exists; it finished or was canceled.",
-            Self::Failed => "The file transfer failed. Check that the device accepts files, then try again.",
+            Self::Failed => {
+                "The file transfer failed. Check that the device accepts files, then try again."
+            }
         })
     }
 }

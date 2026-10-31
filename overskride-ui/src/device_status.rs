@@ -1,7 +1,7 @@
-use overskride_bluetooth::device_snapshot::{DeviceSnapshot, SignalStrength};
-use overskride_bluetooth::kernel_input_devices::KernelInputBinding;
-use overskride_bluetooth::pairing_steps::{
-    PAIRING_STEP_DEFINITIONS, is_step_applicable, is_step_done,
+use overskride_bluetooth::{
+    device_snapshot::{DeviceSnapshot, SignalStrength},
+    kernel_input_devices::KernelInputBinding,
+    pairing_steps::{PAIRING_STEP_DEFINITIONS, is_step_applicable, is_step_done},
 };
 
 use crate::icon_names;

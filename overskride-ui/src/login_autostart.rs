@@ -1,5 +1,7 @@
-use std::fmt;
-use std::path::{Path, PathBuf};
+use std::{
+    fmt,
+    path::{Path, PathBuf},
+};
 
 use ashpd::desktop::background::Background;
 
@@ -66,7 +68,8 @@ fn autostart_entry_path() -> Result<PathBuf, LoginAutostartError> {
 
 fn autostart_entry_text() -> String {
     format!(
-        "[Desktop Entry]\nType=Application\nName=Overskride\nIcon={APPLICATION_ID}\nExec=overskride {BACKGROUND_FLAG}\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n"
+        "[Desktop Entry]\nType=Application\nName=Overskride\nIcon={APPLICATION_ID}\\
+         nExec=overskride {BACKGROUND_FLAG}\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n"
     )
 }
 

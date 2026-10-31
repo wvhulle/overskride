@@ -1,16 +1,19 @@
-use std::collections::{BTreeSet, HashMap};
-use std::str::FromStr;
+use std::{
+    collections::{BTreeSet, HashMap},
+    str::FromStr,
+};
 
 use bluer::DeviceProperty;
-use uom::si::f32::Length;
-use uom::si::length::meter;
+use uom::si::{f32::Length, length::meter};
 
-use crate::bluetooth_error::BluetoothError;
-use crate::device_capabilities::DeviceCapability;
-use crate::device_guess::{DeviceAppearance, DeviceGuess, guess_device_kind};
-use crate::kernel_input_devices::{KernelInputBinding, find_kernel_input_devices};
-use crate::service_names::describe_service;
-use crate::session::DeviceLocation;
+use crate::{
+    bluetooth_error::BluetoothError,
+    device_capabilities::DeviceCapability,
+    device_guess::{DeviceAppearance, DeviceGuess, guess_device_kind},
+    kernel_input_devices::{KernelInputBinding, find_kernel_input_devices},
+    service_names::describe_service,
+    session::DeviceLocation,
+};
 
 pub const UNKNOWN_DEVICE_NAME: &str = "Unknown Device";
 pub const HUMAN_INTERFACE_DEVICE_SERVICE: bluer::Uuid =

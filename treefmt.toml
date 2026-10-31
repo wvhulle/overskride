@@ -1,0 +1,9 @@
+excludes = ["target/*", "build/*", "result/*", "flatpak-build/*"]
+
+[formatter.rustfmt]
+command = "rustfmt"
+includes = ["*.rs"]
+
+[formatter.nixfmt]
+command = "nixfmt"
+includes = ["*.nix"]

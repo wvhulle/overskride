@@ -1,8 +1,6 @@
 use std::path::PathBuf;
 
-use relm4::gtk::gio;
-use relm4::gtk::glib;
-use relm4::gtk::prelude::*;
+use relm4::gtk::{gio, glib, prelude::*};
 
 pub const APPLICATION_ID: &str = "io.github.kaii_lb.Overskride";
 const RECEIVED_FILES_SUBFOLDER: &str = "Bluetooth";

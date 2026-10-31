@@ -1,22 +1,27 @@
 use std::time::{Duration, Instant};
 
 use futures::StreamExt;
-use overskride_bluetooth::adapter_state::{
-    AdapterSnapshot, adapter_changes, set_alias, set_discoverable_timeout, set_powered,
-    set_visible_for_pairing,
+use overskride_bluetooth::{
+    adapter_state::{
+        AdapterSnapshot, adapter_changes, set_alias, set_discoverable_timeout, set_powered,
+        set_visible_for_pairing,
+    },
+    bluetooth_error::BluetoothError,
+    session::BluetoothSession,
 };
-use overskride_bluetooth::bluetooth_error::BluetoothError;
-use overskride_bluetooth::session::BluetoothSession;
-use relm4::adw;
-use relm4::adw::prelude::*;
-use relm4::gtk;
-use relm4::prelude::*;
-use uom::fmt::DisplayStyle;
-use uom::si::f32::Time;
-use uom::si::time::{minute, second};
+use relm4::{adw, adw::prelude::*, gtk, prelude::*};
+use uom::{
+    fmt::DisplayStyle,
+    si::{
+        f32::Time,
+        time::{minute, second},
+    },
+};
 
-use crate::widgets::page_templates::{ClampedPage, PageHeader};
-use crate::widgets::protocol_info::protocol_info_button;
+use crate::widgets::{
+    page_templates::{ClampedPage, PageHeader},
+    protocol_info::protocol_info_button,
+};
 
 const COUNTDOWN_TICK: Duration = Duration::from_secs(1);
 const OFFERED_VISIBILITY_TIMEOUTS: [Duration; 4] = [
@@ -26,7 +31,13 @@ const OFFERED_VISIBILITY_TIMEOUTS: [Duration; 4] = [
     Duration::from_mins(15),
 ];
 const VISIBILITY_PROTOCOL_TERM: &str = "Inquiry scan + Pairable";
-const VISIBILITY_PROTOCOL_DETAILS: &str = "Discoverable makes this radio answer the inquiry packets other devices send while they scan, so this computer appears in their lists under the name below. Pairable lets BlueZ accept the pairing requests they then send; the pairing agent of this app asks you to confirm the code. Turning visibility off keeps Pairable on, so bonded devices can still pair again. This is only needed when the other device starts the pairing; to pair a headset or controller, put it in pairing mode and use Scan instead.";
+const VISIBILITY_PROTOCOL_DETAILS: &str =
+    "Discoverable makes this radio answer the inquiry packets other devices send while they scan, \
+     so this computer appears in their lists under the name below. Pairable lets BlueZ accept the \
+     pairing requests they then send; the pairing agent of this app asks you to confirm the code. \
+     Turning visibility off keeps Pairable on, so bonded devices can still pair again. This is \
+     only needed when the other device starts the pairing; to pair a headset or controller, put \
+     it in pairing mode and use Scan instead.";
 
 pub struct AdapterPageInit {
     pub session: BluetoothSession,
@@ -441,9 +452,7 @@ impl Component for AdapterPage {
                 }
                 self.alias_saving = true;
                 sender.oneshot_command(async move {
-                    AdapterPageCommand::AliasSaved(
-                        set_alias(&session, &adapter_name, alias).await,
-                    )
+                    AdapterPageCommand::AliasSaved(set_alias(&session, &adapter_name, alias).await)
                 });
             }
             _ => {}
@@ -482,8 +491,9 @@ impl Component for AdapterPage {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use overskride_bluetooth::radios::RadioHardware;
+
+    use super::*;
 
     fn visible_adapter() -> AdapterSnapshot {
         AdapterSnapshot {

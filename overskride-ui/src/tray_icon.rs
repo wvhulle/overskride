@@ -1,7 +1,6 @@
 use ksni::menu::{CheckmarkItem, StandardItem};
 
-use crate::app_preferences::APPLICATION_ID;
-use crate::app_window::AppWindowInput;
+use crate::{app_preferences::APPLICATION_ID, app_window::AppWindowInput};
 
 const MOST_TRAY_DEVICES: usize = 8;
 

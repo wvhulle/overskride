@@ -1,12 +1,13 @@
 use std::collections::BTreeSet;
 
 use overskride_bluetooth::device_capabilities::{CapabilityCategory, DeviceCapability};
-use relm4::RelmWidgetExt;
-use relm4::adw;
-use relm4::adw::prelude::*;
-use relm4::factory::{DynamicIndex, FactoryComponent, FactorySender, FactoryVecDeque};
-use relm4::gtk;
-use relm4::prelude::*;
+use relm4::{
+    RelmWidgetExt, adw,
+    adw::prelude::*,
+    factory::{DynamicIndex, FactoryComponent, FactorySender, FactoryVecDeque},
+    gtk,
+    prelude::*,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CapabilitySources {

@@ -1,13 +1,19 @@
-use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::time::Duration;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
+};
 
 use bytesize::ByteSize;
-use dbus::arg::{PropMap, RefArg, Variant};
-use dbus::channel::MatchingReceiver;
-use dbus::message::MatchRule;
-use dbus::nonblock::stdintf::org_freedesktop_dbus::{Properties, PropertiesPropertiesChanged};
-use dbus::nonblock::{Proxy, SyncConnection};
+use dbus::{
+    arg::{PropMap, RefArg, Variant},
+    channel::MatchingReceiver,
+    message::MatchRule,
+    nonblock::{
+        Proxy, SyncConnection,
+        stdintf::org_freedesktop_dbus::{Properties, PropertiesPropertiesChanged},
+    },
+};
 use dbus_crossroads::{Crossroads, MethodErr};
 use futures::{Stream, StreamExt, future, stream};
 use tokio::sync::{mpsc, oneshot};

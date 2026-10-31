@@ -1,6 +1,4 @@
-use relm4::adw;
-use relm4::adw::prelude::*;
-use relm4::gtk;
+use relm4::{adw, adw::prelude::*, gtk};
 
 #[derive(Clone, Copy, Debug)]
 pub struct AlertChoice {

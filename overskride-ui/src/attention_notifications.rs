@@ -1,5 +1,4 @@
-use relm4::gtk::gio;
-use relm4::gtk::prelude::*;
+use relm4::gtk::{gio, prelude::*};
 
 use crate::widgets::alert_dialogs::AlertChoice;
 

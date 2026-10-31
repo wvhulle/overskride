@@ -1,6 +1,8 @@
-use crate::bluetooth_error::BluetoothError;
-use crate::radios::RadioDescription;
-use crate::session::{BluetoothSession, DeviceLocation};
+use crate::{
+    bluetooth_error::BluetoothError,
+    radios::RadioDescription,
+    session::{BluetoothSession, DeviceLocation},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RadioDeviceState {

@@ -1,13 +1,16 @@
-use std::collections::HashMap;
-use std::time::Duration;
+use std::{collections::HashMap, time::Duration};
 
 use bluer::{AdapterEvent, DeviceEvent};
-use futures::stream::{FuturesUnordered, SelectAll};
-use futures::{Stream, StreamExt};
+use futures::{
+    Stream, StreamExt,
+    stream::{FuturesUnordered, SelectAll},
+};
 
-use crate::bluetooth_error::BluetoothError;
-use crate::device_snapshot::{DeviceSnapshot, PropertyRelevance};
-use crate::session::{BluetoothSession, DeviceLocation};
+use crate::{
+    bluetooth_error::BluetoothError,
+    device_snapshot::{DeviceSnapshot, PropertyRelevance},
+    session::{BluetoothSession, DeviceLocation},
+};
 
 const KERNEL_INPUT_SETTLE_DELAY: Duration = Duration::from_secs(1);
 

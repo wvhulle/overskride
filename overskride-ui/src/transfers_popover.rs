@@ -1,22 +1,22 @@
-use std::collections::HashSet;
-use std::time::Duration;
+use std::{collections::HashSet, time::Duration};
 
 use bytesize::ByteSize;
 use futures::StreamExt;
-use overskride_bluetooth::device_actions::read_device;
-use overskride_bluetooth::obex_transfers::{
-    IncomingTransfer, TransferHandle, TransferProgress, TransferStatus,
+use overskride_bluetooth::{
+    device_actions::read_device,
+    obex_transfers::{IncomingTransfer, TransferHandle, TransferProgress, TransferStatus},
+    session::{BluetoothSession, DeviceLocation},
 };
-use overskride_bluetooth::session::{BluetoothSession, DeviceLocation};
-use relm4::adw;
-use relm4::adw::prelude::*;
-use relm4::factory::{DynamicIndex, FactoryComponent, FactorySender, FactoryVecDeque};
-use relm4::gtk;
-use relm4::gtk::glib;
-use relm4::prelude::*;
+use relm4::{
+    adw,
+    adw::prelude::*,
+    factory::{DynamicIndex, FactoryComponent, FactorySender, FactoryVecDeque},
+    gtk,
+    gtk::glib,
+    prelude::*,
+};
 
-use crate::app_preferences::AppPreferences;
-use crate::device_page::ObexAvailability;
+use crate::{app_preferences::AppPreferences, device_page::ObexAvailability};
 
 const FINISHED_TRANSFER_LINGER: Duration = Duration::from_secs(60);
 

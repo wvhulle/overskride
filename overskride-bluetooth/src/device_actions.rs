@@ -1,12 +1,15 @@
 use futures::{Stream, StreamExt, future, stream};
 
-use crate::bluetooth_error::BluetoothError;
-use crate::device_snapshot::DeviceSnapshot;
-use crate::pairing_failure::{
-    AuthorizationFailure, BondingFailure, ConnectionStepFailure, PairStepFailure, PairingFailure,
+use crate::{
+    bluetooth_error::BluetoothError,
+    device_snapshot::DeviceSnapshot,
+    pairing_failure::{
+        AuthorizationFailure, BondingFailure, ConnectionStepFailure, PairStepFailure,
+        PairingFailure,
+    },
+    pairing_steps::{ConnectionPolicy, PairingProgress, PairingStep},
+    session::{BluetoothSession, DeviceLocation},
 };
-use crate::pairing_steps::{ConnectionPolicy, PairingProgress, PairingStep};
-use crate::session::{BluetoothSession, DeviceLocation};
 
 const PAIRING_SEQUENCE: [PairingStep; 4] = [
     PairingStep::Pairing,

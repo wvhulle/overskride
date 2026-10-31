@@ -1,16 +1,16 @@
 use overskride_bluetooth::pairing_steps::ConnectionPolicy;
-use relm4::adw;
-use relm4::adw::prelude::*;
-use relm4::gtk;
-use relm4::gtk::glib;
-use relm4::{ComponentParts, ComponentSender, SimpleComponent};
-
-use crate::icon_names;
-use crate::pairing_presentation::{
-    PolicySelector, PropertyHint, PropertyRow, RadioControl, RadioRowPresentation, StepButtonSlot,
-    StepNodeState, StepPresentation, TimelineAction, TimelinePresentation,
+use relm4::{
+    ComponentParts, ComponentSender, SimpleComponent, adw, adw::prelude::*, gtk, gtk::glib,
 };
-use crate::widgets::protocol_info::protocol_info_button;
+
+use crate::{
+    icon_names,
+    pairing_presentation::{
+        PolicySelector, PropertyHint, PropertyRow, RadioControl, RadioRowPresentation,
+        StepButtonSlot, StepNodeState, StepPresentation, TimelineAction, TimelinePresentation,
+    },
+    widgets::protocol_info::protocol_info_button,
+};
 
 struct PolicyChoice {
     policy: ConnectionPolicy,
@@ -176,7 +176,10 @@ fn stacked_value_row(key: &str, value: &str, hint: &PropertyHint) -> adw::Action
 fn forget_device_row(sender: &ComponentSender<PairingTimeline>) -> adw::ActionRow {
     let forget_row = adw::ActionRow::builder()
         .title("Forget Device")
-        .subtitle("Deletes the link key and trust stored for this radio. The device has to pair again before it can connect.")
+        .subtitle(
+            "Deletes the link key and trust stored for this radio. The device has to pair again \
+             before it can connect.",
+        )
         .subtitle_lines(0)
         .activatable(false)
         .build();

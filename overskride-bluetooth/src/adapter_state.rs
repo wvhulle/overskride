@@ -3,9 +3,11 @@ use std::time::Duration;
 use bluer::{AdapterEvent, AdapterProperty};
 use futures::{Stream, StreamExt};
 
-use crate::bluetooth_error::BluetoothError;
-use crate::radios::{RadioHardware, describe_radio};
-use crate::session::BluetoothSession;
+use crate::{
+    bluetooth_error::BluetoothError,
+    radios::{RadioHardware, describe_radio},
+    session::BluetoothSession,
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AdapterSnapshot {

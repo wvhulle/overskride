@@ -1,17 +1,20 @@
-use std::collections::VecDeque;
-use std::fs::{File, OpenOptions};
-use std::io::Read;
-use std::os::unix::fs::OpenOptionsExt;
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    fs::{File, OpenOptions},
+    io::Read,
+    os::unix::fs::OpenOptionsExt,
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 
 use futures::Stream;
-use tokio::io::Interest;
-use tokio::io::unix::AsyncFd;
-use uom::si::f32::{Frequency, Ratio, Time};
-use uom::si::frequency::hertz;
-use uom::si::ratio::ratio;
-use uom::si::time::second;
+use tokio::io::{Interest, unix::AsyncFd};
+use uom::si::{
+    f32::{Frequency, Ratio, Time},
+    frequency::hertz,
+    ratio::ratio,
+    time::second,
+};
 
 const SUMMARY_INTERVAL: Duration = Duration::from_secs(1);
 const MEASUREMENT_WINDOW: Duration = Duration::from_secs(10);
@@ -139,8 +142,9 @@ pub fn report_timing(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use uom::si::ratio::percent;
+
+    use super::*;
 
     fn steady_arrivals(start: Instant, interval: Duration, count: u32) -> Vec<Instant> {
         (0..count)

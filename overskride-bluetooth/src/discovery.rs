@@ -1,7 +1,6 @@
 use futures::StreamExt;
 
-use crate::bluetooth_error::BluetoothError;
-use crate::session::BluetoothSession;
+use crate::{bluetooth_error::BluetoothError, session::BluetoothSession};
 
 #[derive(Debug)]
 pub struct DiscoverySession {

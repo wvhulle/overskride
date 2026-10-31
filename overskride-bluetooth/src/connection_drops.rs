@@ -1,6 +1,8 @@
-use std::collections::VecDeque;
-use std::str::FromStr;
-use std::time::{Duration, Instant};
+use std::{
+    collections::VecDeque,
+    str::FromStr,
+    time::{Duration, Instant},
+};
 
 use dbus::message::MatchRule;
 use futures::{Stream, StreamExt, future};

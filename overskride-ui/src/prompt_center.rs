@@ -1,22 +1,23 @@
 use std::collections::BTreeMap;
 
-use overskride_bluetooth::obex_transfers::IncomingTransfer;
-use overskride_bluetooth::pairing_agent::{
-    ApprovalRequest, PairingRequest, PasskeyRequest, PinCodeRequest, SERVICE_AUTHORIZATION_TIMEOUT,
-    ServiceAuthorizationAnswer, ServiceAuthorizationRequest,
+use overskride_bluetooth::{
+    obex_transfers::IncomingTransfer,
+    pairing_agent::{
+        ApprovalRequest, PairingRequest, PasskeyRequest, PinCodeRequest,
+        SERVICE_AUTHORIZATION_TIMEOUT, ServiceAuthorizationAnswer, ServiceAuthorizationRequest,
+    },
+    service_names::describe_service,
 };
-use overskride_bluetooth::service_names::describe_service;
-use relm4::adw;
-use relm4::adw::prelude::*;
-use relm4::gtk;
-use relm4::prelude::*;
+use relm4::{adw, adw::prelude::*, gtk, prelude::*};
 
-use crate::attention_notifications::{
-    notify_about_prompt, window_needs_attention, withdraw_prompt_notification,
-};
-use crate::transfers_popover::{SenderAssessment, TransferDecision};
-use crate::widgets::alert_dialogs::{
-    AlertChoice, CANCEL_CHOICE, answer_entry, build_alert, plain_choice, suggested_choice,
+use crate::{
+    attention_notifications::{
+        notify_about_prompt, window_needs_attention, withdraw_prompt_notification,
+    },
+    transfers_popover::{SenderAssessment, TransferDecision},
+    widgets::alert_dialogs::{
+        AlertChoice, CANCEL_CHOICE, answer_entry, build_alert, plain_choice, suggested_choice,
+    },
 };
 
 const CONFIRM_CHOICES: [AlertChoice; 2] = [CANCEL_CHOICE, suggested_choice("confirm", "Confirm")];
@@ -168,7 +169,8 @@ fn draft_pairing_prompt(
         PairingRequest::Passkey(passkey_request) => PromptDraft {
             heading: "Passkey Requested",
             body: format!(
-                "{device_name} wants to pair on {radio_label}. Enter the passkey shown on the device."
+                "{device_name} wants to pair on {radio_label}. Enter the passkey shown on the \
+                 device."
             ),
             choices: &CONFIRM_CHOICES,
             answer: PromptAnswer::Passkey {
@@ -191,7 +193,8 @@ fn draft_pairing_prompt(
         } => PromptDraft {
             heading: "Pairing Passkey",
             body: format!(
-                "Type {passkey:06} on {device_name} to pair it on {radio_label}. {entered_digits} digits entered so far."
+                "Type {passkey:06} on {device_name} to pair it on {radio_label}. {entered_digits} \
+                 digits entered so far."
             ),
             choices: &INFORMATION_CHOICES,
             answer: PromptAnswer::Information,
@@ -223,7 +226,8 @@ fn draft_pairing_prompt(
             PromptDraft {
                 heading: "Connection Request",
                 body: format!(
-                    "{device_name} wants to connect: {service_name}, via {radio_label}. Answer within {} seconds, or the request is denied.",
+                    "{device_name} wants to connect: {service_name}, via {radio_label}. Answer \
+                     within {} seconds, or the request is denied.",
                     SERVICE_AUTHORIZATION_TIMEOUT.as_secs()
                 ),
                 choices: &SERVICE_CHOICES,

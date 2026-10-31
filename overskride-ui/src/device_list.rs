@@ -1,24 +1,33 @@
 use std::cmp::Ordering;
 
 use futures::StreamExt;
-use overskride_bluetooth::bluetooth_error::BluetoothError;
-use overskride_bluetooth::device_changes::{DeviceChange, device_changes};
-use overskride_bluetooth::device_ordering::compare_devices;
-use overskride_bluetooth::device_snapshot::DeviceSnapshot;
-use overskride_bluetooth::session::BluetoothSession;
-use relm4::adw;
-use relm4::gtk;
-use relm4::gtk::prelude::*;
-use relm4::gtk::{gio, glib};
-use relm4::typed_view::list::{RelmListItem, TypedListView};
-use relm4::{ComponentParts, ComponentSender, RelmWidgetExt, prelude::*};
+use overskride_bluetooth::{
+    bluetooth_error::BluetoothError,
+    device_changes::{DeviceChange, device_changes},
+    device_ordering::compare_devices,
+    device_snapshot::DeviceSnapshot,
+    session::BluetoothSession,
+};
+use relm4::{
+    ComponentParts, ComponentSender, RelmWidgetExt, adw, gtk,
+    gtk::{gio, glib, prelude::*},
+    prelude::*,
+    typed_view::list::{RelmListItem, TypedListView},
+};
 
-use crate::device_status::{pairing_status_badge, signal_icon_name, symbolic_device_icon_name};
-use crate::icon_names;
+use crate::{
+    device_status::{pairing_status_badge, signal_icon_name, symbolic_device_icon_name},
+    icon_names,
+};
 
 const NAMED_ONLY_FILTER_INDEX: usize = 0;
 const NAMELESS_SECTION_TITLE: &str = "Without a Name";
-const NAMELESS_SECTION_EXPLANATION: &str = "These devices don't broadcast a name, often to protect the privacy of their owner.\n\nThe shown type is a guess based on what they do broadcast: the manufacturer ID and its payload, the advertised services, and the appearance value. Open a device to see what the guess was based on.\n\nDevices with a random address change it every few minutes, so one device can show up more than once.";
+const NAMELESS_SECTION_EXPLANATION: &str =
+    "These devices don't broadcast a name, often to protect the privacy of their owner.\n\nThe \
+     shown type is a guess based on what they do broadcast: the manufacturer ID and its payload, \
+     the advertised services, and the appearance value. Open a device to see what the guess was \
+     based on.\n\nDevices with a random address change it every few minutes, so one device can \
+     show up more than once.";
 
 pub struct DeviceRowItem {
     snapshot: DeviceSnapshot,

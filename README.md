@@ -47,6 +47,10 @@ cargo run -p overskride-ui
 
 No installation is needed: the build compiles the GSettings schema and the app uses it when no installed schema is found.
 
+## Formatting
+
+Formatting uses nightly rustfmt (imports grouped by crate). Run `nix fmt`, or `cargo +nightly fmt` without Nix. `nix flake check` checks it.
+
 ## Installing
 
 ```bash

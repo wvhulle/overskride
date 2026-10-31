@@ -1,5 +1,7 @@
-use crate::bluetooth_error::{BluetoothError, BluezFailure};
-use crate::radios::{RadioDescription, describe_radio};
+use crate::{
+    bluetooth_error::{BluetoothError, BluezFailure},
+    radios::{RadioDescription, describe_radio},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct DeviceLocation {

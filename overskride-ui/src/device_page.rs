@@ -1,45 +1,51 @@
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 use futures::StreamExt;
-use overskride_bluetooth::audio_profiles::{
-    ActiveAudioProfile, AudioProfiles, read_audio_profiles, set_audio_profile, switch_audio_off,
+use overskride_bluetooth::{
+    audio_profiles::{
+        ActiveAudioProfile, AudioProfiles, read_audio_profiles, set_audio_profile, switch_audio_off,
+    },
+    bluetooth_error::BluetoothError,
+    connection_drops::ConnectionHistory,
+    device_actions::{
+        connect_device, disconnect_device, forget_device, pair_trust_and_connect, rename_device,
+        set_connection_policy,
+    },
+    device_snapshot::{DeviceSnapshot, Manufacturer},
+    kernel_input_devices::KernelInputBinding,
+    obex_transfers::{ObexConnection, TransferHandle},
+    pairing_failure::{AuthorizationFailure, ConnectionStepFailure, PairingFailure},
+    pairing_steps::{PairingProgress, PairingStep},
+    radio_bonds::{RadioBond, read_radio_bonds},
+    report_timing::{ReportTimingSample, report_timing},
+    session::BluetoothSession,
 };
-use overskride_bluetooth::bluetooth_error::BluetoothError;
-use overskride_bluetooth::connection_drops::ConnectionHistory;
-use overskride_bluetooth::device_actions::{
-    connect_device, disconnect_device, forget_device, pair_trust_and_connect, rename_device,
-    set_connection_policy,
+use relm4::{
+    adw,
+    adw::prelude::*,
+    gtk,
+    gtk::{gio, glib},
+    prelude::*,
 };
-use overskride_bluetooth::device_snapshot::{DeviceSnapshot, Manufacturer};
-use overskride_bluetooth::kernel_input_devices::KernelInputBinding;
-use overskride_bluetooth::obex_transfers::{ObexConnection, TransferHandle};
-use overskride_bluetooth::pairing_failure::{
-    AuthorizationFailure, ConnectionStepFailure, PairingFailure,
-};
-use overskride_bluetooth::pairing_steps::{PairingProgress, PairingStep};
-use overskride_bluetooth::radio_bonds::{RadioBond, read_radio_bonds};
-use overskride_bluetooth::report_timing::{ReportTimingSample, report_timing};
-use overskride_bluetooth::session::BluetoothSession;
-use relm4::adw;
-use relm4::adw::prelude::*;
-use relm4::gtk;
-use relm4::gtk::{gio, glib};
-use relm4::prelude::*;
 
-use crate::capability_overview::{CapabilityOverview, CapabilityOverviewInput, CapabilitySources};
-use crate::device_status::{
-    describe_address_type, describe_device_type, device_icon_name, type_guess_evidence,
+use crate::{
+    capability_overview::{CapabilityOverview, CapabilityOverviewInput, CapabilitySources},
+    device_status::{
+        describe_address_type, describe_device_type, device_icon_name, type_guess_evidence,
+    },
+    pairing_presentation::{
+        ActivePairing, LinkMeasurements, ReportTimingState, StepButtonAction, TimelineAction,
+        TimelineInputs,
+    },
+    pairing_timeline::{PairingTimeline, PairingTimelineInput},
+    widgets::{
+        alert_dialogs::{CANCEL_CHOICE, build_alert, choose_response, destructive_choice},
+        page_templates::{ClampedPage, PropertyRow},
+    },
 };
-use crate::pairing_presentation::{
-    ActivePairing, LinkMeasurements, ReportTimingState, StepButtonAction, TimelineAction,
-    TimelineInputs,
-};
-use crate::pairing_timeline::{PairingTimeline, PairingTimelineInput};
-use crate::widgets::alert_dialogs::{
-    CANCEL_CHOICE, build_alert, choose_response, destructive_choice,
-};
-use crate::widgets::page_templates::{ClampedPage, PropertyRow};
 
 #[derive(Clone, Debug)]
 pub enum ObexAvailability {

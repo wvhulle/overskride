@@ -1,8 +1,10 @@
 use overskride_bluetooth::radios::RadioDescription;
-use relm4::adw;
-use relm4::adw::prelude::*;
-use relm4::factory::{DynamicIndex, FactoryComponent, FactorySender};
-use relm4::gtk;
+use relm4::{
+    adw,
+    adw::prelude::*,
+    factory::{DynamicIndex, FactoryComponent, FactorySender},
+    gtk,
+};
 
 #[derive(Debug)]
 pub struct AdapterRow {

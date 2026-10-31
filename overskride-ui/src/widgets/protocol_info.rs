@@ -1,5 +1,4 @@
-use relm4::gtk;
-use relm4::gtk::prelude::*;
+use relm4::{gtk, gtk::prelude::*};
 
 pub fn protocol_info_button(protocol_term: &str, protocol_details: &str) -> gtk::MenuButton {
     let popover_content = gtk::Box::builder()
