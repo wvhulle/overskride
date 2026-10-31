@@ -11,6 +11,9 @@ use overskride_bluetooth::device_actions::{
 };
 use overskride_bluetooth::device_snapshot::{DeviceSnapshot, DistanceEstimate, Manufacturer};
 use overskride_bluetooth::obex_transfers::{ObexConnection, TransferHandle};
+use overskride_bluetooth::pairing_failure::{
+    AuthorizationFailure, ConnectionStepFailure, PairingFailure,
+};
 use overskride_bluetooth::pairing_steps::{PairingProgress, PairingStep};
 use overskride_bluetooth::radio_bonds::{RadioBond, read_radio_bonds};
 use overskride_bluetooth::session::BluetoothSession;
@@ -82,7 +85,7 @@ pub enum DevicePageInput {
 
 #[derive(Debug)]
 pub enum DevicePageOutput {
-    Notify(String),
+    Failed(BluetoothError),
     Forgotten { hint: String, rescan: bool },
     ShowRadio(String),
     PairViaRadio(String),
@@ -93,8 +96,8 @@ pub enum DevicePageOutput {
 pub enum DevicePageCommand {
     RadioBondsRead(Result<Vec<RadioBond>, BluetoothError>),
     Pairing(PairingProgress),
-    ConnectionChanged(Result<(), BluetoothError>),
-    PolicyApplied(Result<(), BluetoothError>),
+    ConnectionChanged(Result<(), ConnectionStepFailure>),
+    PolicyApplied(Result<(), AuthorizationFailure>),
     Renamed(Result<String, BluetoothError>),
     AudioProfilesRead(Result<AudioProfiles, BluetoothError>),
     AudioProfileApplied(Result<(), BluetoothError>),
@@ -215,8 +218,8 @@ impl DevicePage {
                                 })
                                 .await;
                         }
-                        Err(lookup_error) => command_output.emit(DevicePageCommand::Pairing(
-                            PairingProgress::Failed(PairingStep::Pairing, lookup_error),
+                        Err(lookup_failure) => command_output.emit(DevicePageCommand::Pairing(
+                            PairingProgress::Failed(lookup_failure.into()),
                         )),
                     }
                 })
@@ -307,8 +310,8 @@ impl DevicePage {
         }
     }
 
-    fn notify(sender: &ComponentSender<Self>, message: String) {
-        let _app_gone = sender.output(DevicePageOutput::Notify(message));
+    fn report_failure(sender: &ComponentSender<Self>, failure: BluetoothError) {
+        let _app_gone = sender.output(DevicePageOutput::Failed(failure));
     }
 }
 
@@ -585,13 +588,8 @@ impl Component for DevicePage {
                 self.active_pairing = ActivePairing::Running(running_step);
                 self.present_timeline();
             }
-            DevicePageCommand::Pairing(PairingProgress::Failed(failed_step, pairing_error)) => {
-                let reason = pairing_error.to_string();
-                Self::notify(&sender, reason.clone());
-                self.active_pairing = ActivePairing::Failed {
-                    step: failed_step,
-                    reason,
-                };
+            DevicePageCommand::Pairing(PairingProgress::Failed(pairing_failure)) => {
+                self.active_pairing = ActivePairing::Failed(pairing_failure);
                 self.present_timeline();
             }
             DevicePageCommand::Pairing(PairingProgress::Finished) => {
@@ -603,19 +601,21 @@ impl Component for DevicePage {
                 self.active_pairing = ActivePairing::Idle;
                 self.present_timeline();
             }
-            DevicePageCommand::ConnectionChanged(Err(connection_error)) => {
-                let reason = connection_error.to_string();
-                Self::notify(&sender, reason.clone());
-                self.active_pairing = ActivePairing::Failed {
-                    step: PairingStep::Connection,
-                    reason,
-                };
+            DevicePageCommand::ConnectionChanged(Err(connection_failure)) => {
+                self.active_pairing = ActivePairing::Failed(connection_failure.into());
                 self.present_timeline();
             }
-            DevicePageCommand::PolicyApplied(outcome) => {
-                if let Err(policy_error) = outcome {
-                    Self::notify(&sender, policy_error.to_string());
+            DevicePageCommand::PolicyApplied(Ok(())) => {
+                if matches!(
+                    &self.active_pairing,
+                    ActivePairing::Failed(PairingFailure::Authorization(_))
+                ) {
+                    self.active_pairing = ActivePairing::Idle;
                 }
+                self.present_timeline();
+            }
+            DevicePageCommand::PolicyApplied(Err(authorization_failure)) => {
+                self.active_pairing = ActivePairing::Failed(authorization_failure.into());
                 self.present_timeline();
             }
             DevicePageCommand::Renamed(outcome) => {
@@ -627,7 +627,7 @@ impl Component for DevicePage {
                     }
                     Err(rename_error) => {
                         self.alias_changed = true;
-                        Self::notify(&sender, rename_error.to_string());
+                        Self::report_failure(&sender, rename_error);
                     }
                 }
             }
@@ -641,7 +641,7 @@ impl Component for DevicePage {
             }
             DevicePageCommand::AudioProfileApplied(outcome) => {
                 if let Err(audio_error) = outcome {
-                    Self::notify(&sender, audio_error.to_string());
+                    Self::report_failure(&sender, audio_error);
                 }
                 self.read_audio_profiles(&sender);
             }
@@ -666,12 +666,12 @@ impl Component for DevicePage {
             DevicePageCommand::Forgotten {
                 outcome: Err(forget_error),
                 ..
-            } => Self::notify(&sender, forget_error.to_string()),
+            } => Self::report_failure(&sender, forget_error),
             DevicePageCommand::FilesSending(Ok(transfer_handles)) => {
                 let _app_gone = sender.output(DevicePageOutput::TransfersStarted(transfer_handles));
             }
             DevicePageCommand::FilesSending(Err(sending_error)) => {
-                Self::notify(&sender, sending_error.to_string());
+                Self::report_failure(&sender, sending_error);
             }
         }
     }

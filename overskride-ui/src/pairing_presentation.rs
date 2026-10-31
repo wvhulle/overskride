@@ -2,6 +2,7 @@ use overskride_bluetooth::device_snapshot::{
     BatteryReading, DeviceClass, DeviceSnapshot, SignalStrength,
 };
 use overskride_bluetooth::kernel_input_devices::{KernelInputBinding, KernelInputDevices};
+use overskride_bluetooth::pairing_failure::PairingFailure;
 use overskride_bluetooth::pairing_steps::{
     ConnectionPolicy, PAIRING_STEP_DEFINITIONS, PairingStep, applicable_steps, connection_policy,
     first_missing_step, is_step_applicable, is_step_done, step_definition,
@@ -14,7 +15,7 @@ use crate::device_status::input_device_missing;
 pub enum ActivePairing {
     Idle,
     Running(PairingStep),
-    Failed { step: PairingStep, reason: String },
+    Failed(PairingFailure),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -212,8 +213,8 @@ impl TimelineInputs<'_> {
                     step_definition(*running_step).title.to_lowercase()
                 );
             }
-            ActivePairing::Failed { step, reason } => {
-                return format!("{} failed: {reason}", step_definition(*step).title);
+            ActivePairing::Failed(pairing_failure) => {
+                return format!("{} failed.", step_definition(pairing_failure.step()).title);
             }
             ActivePairing::Idle => {}
         }
@@ -243,7 +244,7 @@ impl TimelineInputs<'_> {
             PairingStep::InputDevice => PairingStep::Connection,
         };
         let step_is_active = self.is_running(step)
-            || matches!(self.active_pairing, ActivePairing::Failed { step: failed_step, .. } if *failed_step == step);
+            || matches!(self.active_pairing, ActivePairing::Failed(pairing_failure) if pairing_failure.step() == step);
         let blocked_by_prerequisite = !is_step_done(self.snapshot, prerequisite_step)
             && !is_step_done(self.snapshot, step)
             && !step_is_active;
@@ -527,12 +528,9 @@ impl TimelineInputs<'_> {
             ActivePairing::Running(running_step) if *running_step == step => {
                 step_parts.node_state = StepNodeState::Running;
             }
-            ActivePairing::Failed {
-                step: failed_step,
-                reason,
-            } if *failed_step == step => {
+            ActivePairing::Failed(pairing_failure) if pairing_failure.step() == step => {
                 step_parts.node_state = StepNodeState::Failed;
-                step_parts.status_text.clone_from(reason);
+                step_parts.status_text = pairing_failure.to_string();
             }
             _ => {}
         }
@@ -696,6 +694,8 @@ mod tests {
     use overskride_bluetooth::device_snapshot::{Manufacturer, TransmitPower};
     use overskride_bluetooth::session::DeviceLocation;
 
+    use overskride_bluetooth::pairing_failure::BondingFailure;
+
     use super::*;
 
     fn gamepad_snapshot() -> DeviceSnapshot {
@@ -769,16 +769,17 @@ mod tests {
 
     #[test]
     fn failed_step_shows_reason() {
-        let failure = ActivePairing::Failed {
-            step: PairingStep::Bonding,
-            reason: "no key".to_string(),
-        };
+        let failure = ActivePairing::Failed(BondingFailure::LinkKeyNotStored.into());
         let mut snapshot = gamepad_snapshot();
         snapshot.paired = true;
         let presentation = present(&snapshot, &failure);
         let bonding = step_of(&presentation, PairingStep::Bonding);
         assert_eq!(bonding.node_state, StepNodeState::Failed);
-        assert_eq!(bonding.status_text, "no key");
+        assert_eq!(
+            bonding.status_text,
+            BondingFailure::LinkKeyNotStored.to_string()
+        );
+        assert_eq!(presentation.summary, "Bonding failed.");
         assert!(bonding.offers_forget);
         assert!(bonding.needs_attention);
     }

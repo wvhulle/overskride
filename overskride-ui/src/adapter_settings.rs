@@ -43,7 +43,7 @@ pub enum AdapterSettingsInput {
 
 #[derive(Debug)]
 pub enum AdapterSettingsOutput {
-    Notify(String),
+    Failed(BluetoothError),
     AdapterChanged(AdapterSnapshot),
 }
 
@@ -320,8 +320,7 @@ impl Component for AdapterSettings {
                 self.show_adapter(adapter_snapshot, &sender);
             }
             AdapterSettingsCommand::ActionFinished(Err(adapter_error)) => {
-                let _app_gone =
-                    sender.output(AdapterSettingsOutput::Notify(adapter_error.to_string()));
+                let _app_gone = sender.output(AdapterSettingsOutput::Failed(adapter_error));
             }
         }
     }

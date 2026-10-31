@@ -9,6 +9,7 @@ pub mod discovery;
 pub mod kernel_input_devices;
 pub mod obex_transfers;
 pub mod pairing_agent;
+pub mod pairing_failure;
 pub mod pairing_steps;
 pub mod radio_bonds;
 pub mod radios;

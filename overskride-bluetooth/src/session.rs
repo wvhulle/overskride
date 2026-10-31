@@ -1,4 +1,4 @@
-use crate::bluetooth_error::BluetoothError;
+use crate::bluetooth_error::{BluetoothError, BluezFailure};
 use crate::radios::{RadioDescription, describe_radio};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -50,14 +50,14 @@ impl BluetoothSession {
         &self.bluez_session
     }
 
-    pub(crate) fn adapter(&self, adapter_name: &str) -> Result<bluer::Adapter, BluetoothError> {
+    pub(crate) fn adapter(&self, adapter_name: &str) -> Result<bluer::Adapter, BluezFailure> {
         Ok(self.bluez_session.adapter(adapter_name)?)
     }
 
     pub(crate) fn device(
         &self,
         device_location: &DeviceLocation,
-    ) -> Result<bluer::Device, BluetoothError> {
+    ) -> Result<bluer::Device, BluezFailure> {
         Ok(self
             .adapter(&device_location.adapter_name)?
             .device(device_location.address)?)

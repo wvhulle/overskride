@@ -51,7 +51,7 @@ async fn connect_bluetooth(preferences: &AppPreferences) -> Result<ReadyBluetoot
     })
 }
 
-fn unavailable_page(bluetooth_error: &BluetoothError) -> adw::ToolbarView {
+fn unavailable_page(bluetooth_error: BluetoothError) -> adw::ToolbarView {
     let toolbar_view = adw::ToolbarView::new();
     toolbar_view.add_top_bar(&adw::HeaderBar::new());
     toolbar_view.set_content(Some(
@@ -134,7 +134,7 @@ impl AsyncComponent for AppWindow {
                 }
             }
             Err(bluetooth_error) => {
-                root.set_content(Some(&unavailable_page(&bluetooth_error)));
+                root.set_content(Some(&unavailable_page(bluetooth_error)));
                 WindowContent::Unavailable
             }
         };

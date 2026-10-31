@@ -49,7 +49,7 @@ pub enum TransfersInput {
 
 #[derive(Debug)]
 pub enum TransfersOutput {
-    Notify(String),
+    ReceivingFile { file_name: String },
 }
 
 #[derive(Debug)]
@@ -74,12 +74,13 @@ fn megabytes(byte_count: u64) -> f64 {
 impl TransfersPopover {
     fn accept(&mut self, incoming_transfer: IncomingTransfer, sender: &ComponentSender<Self>) {
         let sender_address = incoming_transfer.sender_address;
+        let file_name = incoming_transfer.file_name.clone();
         let transfer_handle = incoming_transfer.accept(self.preferences.received_files_folder());
         if self.preferences.keep_accepting_after_first_file() {
             self.accepted_senders.insert(sender_address);
         }
         self.transfer_rows.guard().push_back(transfer_handle);
-        let _app_gone = sender.output(TransfersOutput::Notify("Receiving a file".to_string()));
+        let _app_gone = sender.output(TransfersOutput::ReceivingFile { file_name });
     }
 
     fn assess_sender(&self, incoming_transfer: IncomingTransfer, sender: &ComponentSender<Self>) {

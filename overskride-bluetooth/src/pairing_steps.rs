@@ -1,6 +1,6 @@
-use crate::bluetooth_error::BluetoothError;
 use crate::device_snapshot::DeviceSnapshot;
 use crate::kernel_input_devices::KernelInputBinding;
+use crate::pairing_failure::PairingFailure;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum PairingStep {
@@ -61,7 +61,7 @@ pub const PAIRING_STEP_DEFINITIONS: [PairingStepDefinition; 5] = [
 #[derive(Debug)]
 pub enum PairingProgress {
     Running(PairingStep),
-    Failed(PairingStep, BluetoothError),
+    Failed(PairingFailure),
     Finished,
 }
 

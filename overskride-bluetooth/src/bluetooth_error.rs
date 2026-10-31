@@ -1,28 +1,86 @@
 use std::fmt;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BluetoothError {
-    Bluez(bluer::Error),
-    Dbus(dbus::Error),
-    Filesystem(std::io::Error),
+    Bluez(BluezFailure),
+    ObexService(ObexServiceFailure),
+    Filesystem(std::io::ErrorKind),
     AudioServer(AudioServerFailure),
-    Connection(ConnectionFailure),
-    MissingLinkKey,
-    TrustNeedsBond,
     BackgroundTaskStopped,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConnectionFailure {
-    DeviceUnreachable,
-    LinkKeyMissing,
-    RefusedByDevice,
-    ProfileUnavailable,
-    AdapterOff,
-    AttemptInProgress,
-    Canceled,
+pub enum BluezFailure {
+    Connection(BluezConnectionFailure),
+    Request(BluezRequestFailure),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BluezRequestFailure {
+    AlreadyConnected,
+    AlreadyExists,
+    AuthenticationCanceled,
+    AuthenticationFailed,
     AuthenticationRejected,
-    AuthenticationTimedOut,
+    AuthenticationTimeout,
+    ConnectionAttemptFailed,
+    DoesNotExist,
+    InProgress,
+    InvalidArguments,
+    NotAvailable,
+    NotAuthorized,
+    NotReady,
+    NotSupported,
+    ServiceConnectionLost,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LinkTransport {
+    BasicRate,
+    LowEnergy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionReason {
+    AlreadyConnected,
+    PageTimeout,
+    ServiceSearch,
+    CreateSocket,
+    InvalidArguments,
+    AdapterNotPowered,
+    NotSupported,
+    BadSocket,
+    MemoryAllocation,
+    Busy,
+    ConcurrentConnectionLimit,
+    Timeout,
+    Refused,
+    AbortedByRemote,
+    AbortedByLocal,
+    LinkProtocolError,
+    Canceled,
+    GattBrowsing,
+    KeyMissing,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BluezConnectionFailure {
+    pub transport: LinkTransport,
+    pub reason: ConnectionReason,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObexServiceFailure {
+    SessionBusUnavailable,
+    ServiceMissing,
+    NoReply,
+    InvalidArguments,
+    Forbidden,
+    InProgress,
+    TransferGone,
+    Failed,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,139 +90,131 @@ pub enum AudioServerFailure {
     ProfileRejected,
 }
 
-impl fmt::Display for BluetoothError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Bluez(bluez_error) => write!(formatter, "{}", bluez_error.message),
-            Self::Dbus(dbus_error) => write!(
-                formatter,
-                "{}",
-                dbus_error.message().unwrap_or("D-Bus call failed")
-            ),
-            Self::Filesystem(io_error) => write!(formatter, "{io_error}"),
-            Self::AudioServer(audio_failure) => write!(formatter, "{audio_failure}"),
-            Self::Connection(connection_failure) => write!(formatter, "{connection_failure}"),
-            Self::MissingLinkKey => write!(
-                formatter,
-                "Pairing finished, but BlueZ did not store a link key. Put the device in pairing mode and press Pair Again."
-            ),
-            Self::TrustNeedsBond => write!(
-                formatter,
-                "Trust can't be saved: this device is paired but not bonded (no stored link key). Use Pair Again."
-            ),
-            Self::BackgroundTaskStopped => write!(
-                formatter,
-                "A background Bluetooth task stopped unexpectedly"
-            ),
-        }
-    }
-}
+const BREDR_REASON_PREFIX: &str = "br-connection-";
+const LOW_ENERGY_REASON_PREFIX: &str = "le-connection-";
 
-impl fmt::Display for ConnectionFailure {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let explanation = match self {
-            Self::DeviceUnreachable => {
-                "The device did not answer. Turn it on and keep it within a few meters, then press Connect again."
-            }
-            Self::LinkKeyMissing => {
-                "The device no longer knows this computer, for example after it was paired with another one. Put it in pairing mode and press Pair Again."
-            }
-            Self::RefusedByDevice => {
-                "The device refused the connection. Disconnect it from other phones or computers, then try again."
-            }
-            Self::ProfileUnavailable => {
-                "The device offers no connection this computer can use yet. Wait a few seconds after turning it on, then try again."
-            }
-            Self::AdapterOff => {
-                "Bluetooth is turned off on this radio. Turn on Powered in Bluetooth Settings."
-            }
-            Self::AttemptInProgress => {
-                "Another connection attempt is still running. Wait a few seconds, then try again."
-            }
-            Self::Canceled => "The attempt was canceled.",
-            Self::AuthenticationRejected => {
-                "Pairing was rejected: the PIN or passkey did not match, or the device left pairing mode. Put it in pairing mode and press Pair again."
-            }
-            Self::AuthenticationTimedOut => {
-                "The device did not finish pairing in time. Keep it in pairing mode and press Pair again."
-            }
-        };
-        formatter.write_str(explanation)
-    }
-}
-
-const BLUEZ_REASON_PREFIXES: [&str; 2] = ["br-connection-", "le-connection-"];
-
-fn classify_bluez_reason(reason: &str) -> Option<ConnectionFailure> {
-    match reason {
-        "page-timeout" | "create-socket" | "timeout" | "bad-socket" | "lmp-protocol-error" => {
-            Some(ConnectionFailure::DeviceUnreachable)
-        }
-        "key-missing" => Some(ConnectionFailure::LinkKeyMissing),
-        "refused" | "aborted-by-remote" | "abort-by-remote" => {
-            Some(ConnectionFailure::RefusedByDevice)
-        }
-        "profile-unavailable" | "sdp-search" | "gatt-browsing" => {
-            Some(ConnectionFailure::ProfileUnavailable)
-        }
-        "adapter-not-powered" => Some(ConnectionFailure::AdapterOff),
-        "busy" | "concurrent-connection-limit" => Some(ConnectionFailure::AttemptInProgress),
-        "canceled" | "aborted-by-local" | "abort-by-local" => Some(ConnectionFailure::Canceled),
-        _ => None,
-    }
-}
-
-fn classify_bluez_error(bluez_error: &bluer::Error) -> Option<ConnectionFailure> {
-    let failure_from_kind = match bluez_error.kind {
-        bluer::ErrorKind::ConnectionAttemptFailed => Some(ConnectionFailure::DeviceUnreachable),
-        bluer::ErrorKind::AuthenticationFailed | bluer::ErrorKind::AuthenticationRejected => {
-            Some(ConnectionFailure::AuthenticationRejected)
-        }
-        bluer::ErrorKind::AuthenticationTimeout => Some(ConnectionFailure::AuthenticationTimedOut),
-        bluer::ErrorKind::AuthenticationCanceled => Some(ConnectionFailure::Canceled),
-        bluer::ErrorKind::InProgress => Some(ConnectionFailure::AttemptInProgress),
-        bluer::ErrorKind::NotReady => Some(ConnectionFailure::AdapterOff),
-        _ => None,
+fn parse_connection_reason(reason_code: &str) -> Option<ConnectionReason> {
+    let reason = match reason_code {
+        "already-connected" => ConnectionReason::AlreadyConnected,
+        "page-timeout" => ConnectionReason::PageTimeout,
+        "sdp-search" => ConnectionReason::ServiceSearch,
+        "create-socket" => ConnectionReason::CreateSocket,
+        "invalid-argument" | "invalid-arguments" => ConnectionReason::InvalidArguments,
+        "adapter-not-powered" => ConnectionReason::AdapterNotPowered,
+        "not-supported" => ConnectionReason::NotSupported,
+        "bad-socket" => ConnectionReason::BadSocket,
+        "memory-allocation" => ConnectionReason::MemoryAllocation,
+        "busy" => ConnectionReason::Busy,
+        "concurrent-connection-limit" => ConnectionReason::ConcurrentConnectionLimit,
+        "timeout" => ConnectionReason::Timeout,
+        "refused" => ConnectionReason::Refused,
+        "aborted-by-remote" | "abort-by-remote" => ConnectionReason::AbortedByRemote,
+        "aborted-by-local" | "abort-by-local" => ConnectionReason::AbortedByLocal,
+        "lmp-protocol-error" | "link-layer-protocol-error" => ConnectionReason::LinkProtocolError,
+        "canceled" => ConnectionReason::Canceled,
+        "gatt-browsing" => ConnectionReason::GattBrowsing,
+        "key-missing" => ConnectionReason::KeyMissing,
+        "unknown" => ConnectionReason::Unknown,
+        _ => return None,
     };
-    let failure_from_reason = BLUEZ_REASON_PREFIXES
-        .iter()
-        .find_map(|reason_prefix| bluez_error.message.strip_prefix(reason_prefix))
-        .and_then(classify_bluez_reason);
-    failure_from_reason.or(failure_from_kind)
+    Some(reason)
 }
 
-impl fmt::Display for AudioServerFailure {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::ContextUnavailable => {
-                write!(formatter, "Cannot connect to the PulseAudio server")
+fn parse_connection_failure(bluez_message: &str) -> Option<BluezConnectionFailure> {
+    if let Some(reason_code) = bluez_message.strip_prefix(BREDR_REASON_PREFIX) {
+        return Some(BluezConnectionFailure {
+            transport: LinkTransport::BasicRate,
+            reason: parse_connection_reason(reason_code)?,
+        });
+    }
+    let reason_code = bluez_message.strip_prefix(LOW_ENERGY_REASON_PREFIX)?;
+    Some(BluezConnectionFailure {
+        transport: LinkTransport::LowEnergy,
+        reason: parse_connection_reason(reason_code)?,
+    })
+}
+
+impl From<bluer::ErrorKind> for BluezRequestFailure {
+    fn from(bluez_kind: bluer::ErrorKind) -> Self {
+        match bluez_kind {
+            bluer::ErrorKind::AlreadyConnected => Self::AlreadyConnected,
+            bluer::ErrorKind::AlreadyExists => Self::AlreadyExists,
+            bluer::ErrorKind::AuthenticationCanceled => Self::AuthenticationCanceled,
+            bluer::ErrorKind::AuthenticationFailed => Self::AuthenticationFailed,
+            bluer::ErrorKind::AuthenticationRejected => Self::AuthenticationRejected,
+            bluer::ErrorKind::AuthenticationTimeout => Self::AuthenticationTimeout,
+            bluer::ErrorKind::ConnectionAttemptFailed => Self::ConnectionAttemptFailed,
+            bluer::ErrorKind::DoesNotExist | bluer::ErrorKind::NotFound => Self::DoesNotExist,
+            bluer::ErrorKind::InProgress => Self::InProgress,
+            bluer::ErrorKind::InvalidArguments => Self::InvalidArguments,
+            bluer::ErrorKind::NotAvailable => Self::NotAvailable,
+            bluer::ErrorKind::NotAuthorized | bluer::ErrorKind::NotPermitted => Self::NotAuthorized,
+            bluer::ErrorKind::NotReady => Self::NotReady,
+            bluer::ErrorKind::NotSupported => Self::NotSupported,
+            bluer::ErrorKind::Internal(bluer::InternalErrorKind::DBusConnectionLost) => {
+                Self::ServiceConnectionLost
             }
-            Self::CardNotFound => write!(formatter, "The audio server does not know this device"),
-            Self::ProfileRejected => write!(formatter, "The audio server rejected the profile"),
+            _ => Self::Failed,
         }
     }
 }
 
-impl std::error::Error for BluetoothError {}
+impl From<&dbus::Error> for ObexServiceFailure {
+    fn from(dbus_error: &dbus::Error) -> Self {
+        match dbus_error.name().unwrap_or_default() {
+            "org.freedesktop.DBus.Error.NoServer"
+            | "org.freedesktop.DBus.Error.FileNotFound"
+            | "org.freedesktop.DBus.Error.Disconnected" => Self::SessionBusUnavailable,
+            "org.freedesktop.DBus.Error.ServiceUnknown"
+            | "org.freedesktop.DBus.Error.NameHasNoOwner" => Self::ServiceMissing,
+            "org.freedesktop.DBus.Error.NoReply"
+            | "org.freedesktop.DBus.Error.Timeout"
+            | "org.freedesktop.DBus.Error.TimedOut" => Self::NoReply,
+            "org.bluez.obex.Error.InvalidArguments" | "org.freedesktop.DBus.Error.InvalidArgs" => {
+                Self::InvalidArguments
+            }
+            "org.bluez.obex.Error.Forbidden" | "org.bluez.obex.Error.NotAuthorized" => {
+                Self::Forbidden
+            }
+            "org.bluez.obex.Error.InProgress" => Self::InProgress,
+            "org.bluez.obex.Error.NotFound" | "org.freedesktop.DBus.Error.UnknownObject" => {
+                Self::TransferGone
+            }
+            _ => Self::Failed,
+        }
+    }
+}
+
+impl From<bluer::Error> for BluezFailure {
+    fn from(bluez_error: bluer::Error) -> Self {
+        match parse_connection_failure(&bluez_error.message) {
+            Some(connection_failure) => Self::Connection(connection_failure),
+            None => Self::Request(bluez_error.kind.into()),
+        }
+    }
+}
+
+impl From<BluezFailure> for BluetoothError {
+    fn from(bluez_failure: BluezFailure) -> Self {
+        Self::Bluez(bluez_failure)
+    }
+}
 
 impl From<bluer::Error> for BluetoothError {
     fn from(bluez_error: bluer::Error) -> Self {
-        match classify_bluez_error(&bluez_error) {
-            Some(connection_failure) => Self::Connection(connection_failure),
-            None => Self::Bluez(bluez_error),
-        }
+        Self::Bluez(bluez_error.into())
     }
 }
 
 impl From<dbus::Error> for BluetoothError {
     fn from(dbus_error: dbus::Error) -> Self {
-        Self::Dbus(dbus_error)
+        Self::ObexService(ObexServiceFailure::from(&dbus_error))
     }
 }
 
 impl From<std::io::Error> for BluetoothError {
     fn from(io_error: std::io::Error) -> Self {
-        Self::Filesystem(io_error)
+        Self::Filesystem(io_error.kind())
     }
 }
 
@@ -180,51 +230,231 @@ impl From<tokio::task::JoinError> for BluetoothError {
     }
 }
 
+impl fmt::Display for ConnectionReason {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::PageTimeout | Self::CreateSocket | Self::Timeout => {
+                "The device did not answer. Turn it on and keep it within a few meters, then press Connect again."
+            }
+            Self::KeyMissing => {
+                "The device no longer knows this computer, for example after it was paired with another one. Put it in pairing mode and press Pair Again."
+            }
+            Self::Refused | Self::AbortedByRemote => {
+                "The device refused the connection. Disconnect it from other phones or computers, then try again."
+            }
+            Self::ServiceSearch | Self::GattBrowsing => {
+                "The device connected but did not list its services. Wait a few seconds after turning it on, then try again."
+            }
+            Self::AdapterNotPowered => "Bluetooth is turned off on this radio. Turn on Powered in Bluetooth Settings.",
+            Self::Busy | Self::ConcurrentConnectionLimit => {
+                "The radio is busy with another connection attempt. Wait a few seconds, then try again."
+            }
+            Self::AlreadyConnected => "The device is already connected.",
+            Self::Canceled | Self::AbortedByLocal => "The connection attempt was canceled on this computer.",
+            Self::NotSupported | Self::InvalidArguments => "This radio does not support connecting to this kind of device.",
+            Self::BadSocket | Self::MemoryAllocation => {
+                "BlueZ ran into an internal problem. Restart the Bluetooth service with `systemctl restart bluetooth`, then try again."
+            }
+            Self::LinkProtocolError => {
+                "The radio link broke down while connecting, often because of interference. Move closer to the computer and try again."
+            }
+            Self::Unknown => {
+                "BlueZ could not tell why the connection failed. Turn the device off and on again, then press Connect."
+            }
+        })
+    }
+}
+
+impl fmt::Display for BluezRequestFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::ConnectionAttemptFailed => {
+                "The device did not answer. Turn it on and keep it within a few meters, then try again."
+            }
+            Self::AuthenticationFailed | Self::AuthenticationRejected => {
+                "Pairing was rejected: the PIN or passkey did not match, or the device left pairing mode. Put it in pairing mode and press Pair again."
+            }
+            Self::AuthenticationTimeout => {
+                "The device did not finish pairing in time. Keep it in pairing mode and press Pair again."
+            }
+            Self::AuthenticationCanceled => "Pairing was canceled.",
+            Self::AlreadyConnected => "The device is already connected.",
+            Self::AlreadyExists => "The device is already paired.",
+            Self::InProgress => "Another attempt is still running. Wait a few seconds, then try again.",
+            Self::InvalidArguments => "BlueZ rejected the request as invalid.",
+            Self::NotReady => "Bluetooth is turned off on this radio. Turn on Powered in Bluetooth Settings.",
+            Self::DoesNotExist => "BlueZ no longer knows this device. Press Scan to find it again.",
+            Self::NotAuthorized => "BlueZ refused the request. Check that your user may use Bluetooth.",
+            Self::NotSupported | Self::NotAvailable => "This radio or device does not support the request.",
+            Self::ServiceConnectionLost => {
+                "The connection to the Bluetooth service was lost. Check that bluetoothd is running, then restart Overskride."
+            }
+            Self::Failed => "BlueZ could not complete the request. Turn the device off and on again, then retry.",
+        })
+    }
+}
+
+impl fmt::Display for BluezFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Connection(connection_failure) => {
+                write!(formatter, "{}", connection_failure.reason)
+            }
+            Self::Request(request_failure) => write!(formatter, "{request_failure}"),
+        }
+    }
+}
+
+impl fmt::Display for ObexServiceFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::SessionBusUnavailable => "No D-Bus session bus is running, so files cannot be sent or received.",
+            Self::ServiceMissing => {
+                "The file transfer service (obexd) is not running. Install bluez-obex or start obex.service, then try again."
+            }
+            Self::NoReply => "The file transfer service did not answer in time. Try again.",
+            Self::InvalidArguments => "The file transfer service rejected the request as invalid.",
+            Self::Forbidden => "The device refused the file transfer.",
+            Self::InProgress => "Another file transfer is still running. Wait for it to finish.",
+            Self::TransferGone => "The transfer no longer exists; it finished or was canceled.",
+            Self::Failed => "The file transfer failed. Check that the device accepts files, then try again.",
+        })
+    }
+}
+
+impl fmt::Display for AudioServerFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
+            Self::ContextUnavailable => "Cannot connect to the PulseAudio server.",
+            Self::CardNotFound => {
+                "The audio server does not know this device yet. Connect it first."
+            }
+            Self::ProfileRejected => "The audio server rejected the profile.",
+        })
+    }
+}
+
+impl fmt::Display for BluetoothError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Bluez(bluez_failure) => write!(formatter, "{bluez_failure}"),
+            Self::ObexService(obex_failure) => write!(formatter, "{obex_failure}"),
+            Self::Filesystem(io_kind) => {
+                write!(formatter, "Could not store the received file: {io_kind}.")
+            }
+            Self::AudioServer(audio_failure) => write!(formatter, "{audio_failure}"),
+            Self::BackgroundTaskStopped => {
+                formatter.write_str("A background Bluetooth task stopped unexpectedly.")
+            }
+        }
+    }
+}
+
+impl std::error::Error for BluetoothError {}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn bluez_failure(kind: bluer::ErrorKind, message: &str) -> BluetoothError {
-        BluetoothError::from(bluer::Error {
+    fn bluez_failure(kind: bluer::ErrorKind, message: &str) -> BluezFailure {
+        BluezFailure::from(bluer::Error {
             kind,
             message: message.to_string(),
         })
     }
 
     #[test]
-    fn switched_off_device_is_reported_as_unreachable() {
+    fn switched_off_device_is_a_typed_socket_failure() {
         let connection_error =
             bluez_failure(bluer::ErrorKind::Failed, "br-connection-create-socket");
-        assert!(matches!(
+        assert_eq!(
             connection_error,
-            BluetoothError::Connection(ConnectionFailure::DeviceUnreachable)
-        ));
+            BluezFailure::Connection(BluezConnectionFailure {
+                transport: LinkTransport::BasicRate,
+                reason: ConnectionReason::CreateSocket,
+            })
+        );
         assert!(connection_error.to_string().contains("Turn it on"));
     }
 
     #[test]
-    fn missing_key_on_low_energy_link_suggests_pairing_again() {
-        assert!(matches!(
-            bluez_failure(bluer::ErrorKind::Failed, "le-connection-key-missing"),
-            BluetoothError::Connection(ConnectionFailure::LinkKeyMissing)
-        ));
+    fn low_energy_spellings_map_to_the_same_reasons() {
+        assert_eq!(
+            bluez_failure(bluer::ErrorKind::Failed, "le-connection-abort-by-remote"),
+            BluezFailure::Connection(BluezConnectionFailure {
+                transport: LinkTransport::LowEnergy,
+                reason: ConnectionReason::AbortedByRemote,
+            })
+        );
     }
 
     #[test]
-    fn rejected_authentication_is_classified_by_kind() {
-        assert!(matches!(
+    fn every_bluez_reason_code_is_typed() {
+        [
+            "br-connection-already-connected",
+            "br-connection-page-timeout",
+            "br-connection-sdp-search",
+            "br-connection-create-socket",
+            "br-connection-invalid-argument",
+            "br-connection-adapter-not-powered",
+            "br-connection-not-supported",
+            "br-connection-bad-socket",
+            "br-connection-memory-allocation",
+            "br-connection-busy",
+            "br-connection-concurrent-connection-limit",
+            "br-connection-timeout",
+            "br-connection-refused",
+            "br-connection-aborted-by-remote",
+            "br-connection-aborted-by-local",
+            "br-connection-lmp-protocol-error",
+            "br-connection-canceled",
+            "br-connection-key-missing",
+            "br-connection-unknown",
+            "le-connection-invalid-arguments",
+            "le-connection-adapter-not-powered",
+            "le-connection-not-supported",
+            "le-connection-already-connected",
+            "le-connection-bad-socket",
+            "le-connection-memory-allocation",
+            "le-connection-busy",
+            "le-connection-refused",
+            "le-connection-create-socket",
+            "le-connection-timeout",
+            "le-connection-concurrent-connection-limit",
+            "le-connection-abort-by-remote",
+            "le-connection-abort-by-local",
+            "le-connection-link-layer-protocol-error",
+            "le-connection-gatt-browsing",
+            "le-connection-key-missing",
+            "le-connection-unknown",
+        ]
+        .iter()
+        .for_each(|reason_code| {
+            assert!(
+                parse_connection_failure(reason_code).is_some(),
+                "{reason_code} is not typed"
+            );
+        });
+    }
+
+    #[test]
+    fn other_bluez_failures_keep_only_the_typed_kind() {
+        assert_eq!(
             bluez_failure(
                 bluer::ErrorKind::AuthenticationRejected,
                 "Authentication Rejected"
             ),
-            BluetoothError::Connection(ConnectionFailure::AuthenticationRejected)
-        ));
+            BluezFailure::Request(BluezRequestFailure::AuthenticationRejected)
+        );
     }
 
     #[test]
-    fn unknown_reasons_keep_the_original_message() {
-        let unknown_error = bluez_failure(bluer::ErrorKind::Failed, "br-connection-unknown");
-        assert!(matches!(unknown_error, BluetoothError::Bluez(_)));
-        assert_eq!(unknown_error.to_string(), "br-connection-unknown");
+    fn missing_obex_daemon_is_typed() {
+        let dbus_error =
+            dbus::Error::new_custom("org.freedesktop.DBus.Error.ServiceUnknown", "no obexd");
+        assert_eq!(
+            BluetoothError::from(dbus_error),
+            BluetoothError::ObexService(ObexServiceFailure::ServiceMissing)
+        );
     }
 }

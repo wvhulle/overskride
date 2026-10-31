@@ -131,8 +131,9 @@ fn obexd_received_file_path(file_name: &str) -> Option<PathBuf> {
 }
 
 fn move_received_file(file_name: &str, destination_folder: &Path) -> Result<(), BluetoothError> {
-    let source_path = obexd_received_file_path(file_name)
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no cache folder"))?;
+    let Some(source_path) = obexd_received_file_path(file_name) else {
+        return Err(BluetoothError::Filesystem(std::io::ErrorKind::NotFound));
+    };
     std::fs::create_dir_all(destination_folder)?;
     let destination_path = destination_folder.join(file_name);
     if std::fs::rename(&source_path, &destination_path).is_err() {
@@ -187,9 +188,9 @@ impl ObexConnection {
                             Some(push_forwarder) => {
                                 push_forwarder.authorize_push(transfer_path).await
                             }
-                            None => Err(MethodErr::failed("agent is not registered")),
+                            None => Err(PushRefusal::NobodyListening),
                         };
-                        method_context.reply(authorization)
+                        method_context.reply(authorization.map_err(MethodErr::from))
                     }
                 },
             );
@@ -319,42 +320,96 @@ impl Drop for AgentRegistration {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PushRefusal {
+    TransferUnreadable,
+    TransferWithoutName,
+    TransferWithoutSession,
+    SessionWithoutSender,
+    NobodyListening,
+    DeclinedByUser,
+}
+
+impl From<PushRefusal> for MethodErr {
+    fn from(push_refusal: PushRefusal) -> Self {
+        let (error_name, error_text) = match push_refusal {
+            PushRefusal::TransferUnreadable => (
+                "org.bluez.obex.Error.Failed",
+                "transfer properties are unreadable",
+            ),
+            PushRefusal::TransferWithoutName => {
+                ("org.bluez.obex.Error.Failed", "transfer has no name")
+            }
+            PushRefusal::TransferWithoutSession => {
+                ("org.bluez.obex.Error.Failed", "transfer has no session")
+            }
+            PushRefusal::SessionWithoutSender => (
+                "org.bluez.obex.Error.Failed",
+                "session has no sender address",
+            ),
+            PushRefusal::NobodyListening => (
+                "org.bluez.obex.Error.Canceled",
+                "nobody listens for incoming transfers",
+            ),
+            PushRefusal::DeclinedByUser => ("org.bluez.obex.Error.Rejected", "Not Authorized"),
+        };
+        MethodErr::from((error_name, error_text))
+    }
+}
+
 impl PushForwarder {
+    async fn read_properties(
+        &self,
+        object_path: dbus::Path<'static>,
+        interface_name: &str,
+    ) -> Result<PropMap, PushRefusal> {
+        let Ok(object_properties) = self
+            .obex_connection
+            .proxy(object_path)
+            .get_all(interface_name)
+            .await
+        else {
+            return Err(PushRefusal::TransferUnreadable);
+        };
+        Ok(object_properties)
+    }
+
     async fn authorize_push(
         &self,
         transfer_path: dbus::Path<'static>,
-    ) -> Result<(String,), MethodErr> {
+    ) -> Result<(String,), PushRefusal> {
         let transfer_properties = self
-            .obex_connection
-            .proxy(transfer_path.clone())
-            .get_all(TRANSFER_INTERFACE)
+            .read_properties(transfer_path.clone(), TRANSFER_INTERFACE)
             .await?;
-        let file_name = property_text(&transfer_properties, "Name")
-            .ok_or_else(|| MethodErr::failed("transfer has no name"))?;
-        let session_path = property_text(&transfer_properties, "Session")
-            .ok_or_else(|| MethodErr::failed("transfer has no session"))?;
+        let Some(file_name) = property_text(&transfer_properties, "Name") else {
+            return Err(PushRefusal::TransferWithoutName);
+        };
+        let Some(session_path) = property_text(&transfer_properties, "Session") else {
+            return Err(PushRefusal::TransferWithoutSession);
+        };
         let session_properties = self
-            .obex_connection
-            .proxy(dbus::Path::from(session_path))
-            .get_all(SESSION_INTERFACE)
+            .read_properties(dbus::Path::from(session_path), SESSION_INTERFACE)
             .await?;
-        let sender_address = property_text(&session_properties, "Destination")
+        let Some(sender_address) = property_text(&session_properties, "Destination")
             .and_then(|destination_text| destination_text.parse().ok())
-            .ok_or_else(|| MethodErr::failed("session has no sender address"))?;
+        else {
+            return Err(PushRefusal::SessionWithoutSender);
+        };
         let (reply_channel, reply_receiver) = oneshot::channel();
-        self.transfer_sender
-            .send(IncomingTransfer {
-                sender_address,
-                file_name: file_name.clone(),
-                total_bytes: property_number(&transfer_properties, "Size").unwrap_or_default(),
-                obex_connection: self.obex_connection.clone(),
-                transfer_path,
-                reply_channel,
-            })
-            .map_err(|_| MethodErr::failed("nobody listens for incoming transfers"))?;
-        reply_receiver
-            .await
-            .map_err(|_| MethodErr::from(("org.bluez.obex.Error.Rejected", "Not Authorized")))?;
+        let incoming_transfer = IncomingTransfer {
+            sender_address,
+            file_name: file_name.clone(),
+            total_bytes: property_number(&transfer_properties, "Size").unwrap_or_default(),
+            obex_connection: self.obex_connection.clone(),
+            transfer_path,
+            reply_channel,
+        };
+        if self.transfer_sender.send(incoming_transfer).is_err() {
+            return Err(PushRefusal::NobodyListening);
+        }
+        if reply_receiver.await.is_err() {
+            return Err(PushRefusal::DeclinedByUser);
+        }
         Ok((file_name,))
     }
 }

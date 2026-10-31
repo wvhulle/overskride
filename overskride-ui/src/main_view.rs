@@ -86,7 +86,7 @@ pub enum MainViewInput {
     DeviceList(DeviceListOutput),
     DevicePage(DevicePageOutput),
     AdapterSettings(AdapterSettingsOutput),
-    Notify(String),
+    Transfers(TransfersOutput),
 }
 
 #[derive(Debug)]
@@ -292,7 +292,9 @@ impl MainView {
         sender: &ComponentSender<Self>,
     ) {
         match device_page_output {
-            DevicePageOutput::Notify(message) => root.add_toast(adw::Toast::new(&message)),
+            DevicePageOutput::Failed(failure) => {
+                root.add_toast(adw::Toast::new(&failure.to_string()));
+            }
             DevicePageOutput::Forgotten { hint, rescan } => {
                 root.add_toast(adw::Toast::new(&hint));
                 self.show_settings();
@@ -477,9 +479,7 @@ impl Component for MainView {
                 preferences: preferences.clone(),
                 adapter_name: adapter.adapter_name.clone(),
             })
-            .forward(sender.input_sender(), |TransfersOutput::Notify(message)| {
-                MainViewInput::Notify(message)
-            });
+            .forward(sender.input_sender(), MainViewInput::Transfers);
         let device_list_slot = adw::Bin::new();
         let content_slot = adw::Bin::new();
         device_list_slot.set_child(Some(device_list.widget()));
@@ -596,9 +596,11 @@ impl Component for MainView {
             MainViewInput::DevicePage(device_page_output) => {
                 self.handle_device_page_output(device_page_output, root, &sender);
             }
-            MainViewInput::AdapterSettings(AdapterSettingsOutput::Notify(message))
-            | MainViewInput::Notify(message) => {
-                root.add_toast(adw::Toast::new(&message));
+            MainViewInput::AdapterSettings(AdapterSettingsOutput::Failed(failure)) => {
+                root.add_toast(adw::Toast::new(&failure.to_string()));
+            }
+            MainViewInput::Transfers(TransfersOutput::ReceivingFile { file_name }) => {
+                root.add_toast(adw::Toast::new(&format!("Receiving {file_name}")));
             }
             MainViewInput::AdapterSettings(AdapterSettingsOutput::AdapterChanged(adapter)) => {
                 if adapter.powered && !self.adapter.powered {
