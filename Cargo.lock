@@ -108,7 +108,7 @@ checksum = "812e12b5285cc515a9c72a5c1d3b6d46a19dac5acfef5265968c166106e31dd3"
 [[package]]
 name = "bluer"
 version = "0.17.4"
-source = "git+https://github.com/wvhulle/bluer?rev=907f8ec76cf25bf536c8ac6a83d8ce6442575cc4#907f8ec76cf25bf536c8ac6a83d8ce6442575cc4"
+source = "git+https://github.com/wvhulle/bluer?rev=7ceae9d120010a14cf6391871d782f3067ee1f94#7ceae9d120010a14cf6391871d782f3067ee1f94"
 dependencies = [
  "custom_debug",
  "dbus",
