@@ -29,7 +29,7 @@ steps:
       - cd screenshots
       - git init --quiet --initial-branch screenshots
       - git add --all
-      - git -c user.name=bindrune-ci -c user.email=willemvanhulle@protonmail.com commit --quiet --message "docs: README screenshots of $${CI_COMMIT_SHA}"
+      - 'git -c user.name=bindrune-ci -c user.email=willemvanhulle@protonmail.com commit --quiet --message "docs: README screenshots of $${CI_COMMIT_SHA}"'
       - git remote add origin "https://wvhulle:$${CODEBERG_TOKEN}@codeberg.org/$${CI_REPO}.git"
       - published_tree=$(git fetch --quiet --depth 1 origin screenshots && git rev-parse 'FETCH_HEAD^{tree}' || true)
       - if [ "$published_tree" = "$(git rev-parse 'HEAD^{tree}')" ]; then echo "screenshots unchanged"; else git push --force origin screenshots; fi
