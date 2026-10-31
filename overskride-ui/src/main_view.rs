@@ -16,8 +16,12 @@ use relm4::adw::prelude::*;
 use relm4::gtk;
 use relm4::prelude::*;
 
-use crate::adapter_settings::{AdapterSettings, AdapterSettingsInit, AdapterSettingsOutput};
+use relm4::factory::FactoryVecDeque;
+
+use crate::adapter_page::{AdapterPage, AdapterPageInit, AdapterPageOutput};
+use crate::adapter_row::{AdapterRow, AdapterRowInit};
 use crate::app_preferences::AppPreferences;
+use crate::app_settings_page::AppSettingsPage;
 use crate::device_list::{DeviceList, DeviceListInput, DeviceListOutput, DeviceListSource};
 use crate::device_page::{
     DevicePage, DevicePageInit, DevicePageInput, DevicePageOutput, ObexAvailability,
@@ -38,7 +42,8 @@ pub struct MainViewInit {
 }
 
 enum ContentPage {
-    BluetoothSettings,
+    AppSettings,
+    Adapter,
     Device(Controller<DevicePage>),
 }
 
@@ -53,7 +58,7 @@ enum ScanState {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum AfterAdapterSwitch {
-    ShowSettings,
+    ShowAdapter,
     OpenDevice(overskride_bluetooth::Address),
     StartScan,
 }
@@ -71,7 +76,9 @@ pub struct MainView {
     content_title: String,
     show_content: bool,
     device_list: Controller<DeviceList>,
-    adapter_settings: Controller<AdapterSettings>,
+    adapter_page: Controller<AdapterPage>,
+    app_settings: Controller<AppSettingsPage>,
+    adapter_rows: FactoryVecDeque<AdapterRow>,
     transfers: Controller<TransfersPopover>,
     device_list_slot: adw::Bin,
     content_slot: adw::Bin,
@@ -80,14 +87,14 @@ pub struct MainView {
 #[derive(Debug)]
 pub enum MainViewInput {
     ScanToggled(bool),
-    RadioSelected(u32),
-    ShowSettings,
+    AdapterActivated(String),
+    ShowAppSettings,
     BackToSidebar,
     RefreshDevices,
     HideUnknownDevices(bool),
     DeviceList(DeviceListOutput),
     DevicePage(DevicePageOutput),
-    AdapterSettings(AdapterSettingsOutput),
+    AdapterPage(AdapterPageOutput),
     Transfers(TransfersOutput),
 }
 
@@ -106,14 +113,6 @@ pub enum MainViewCommand {
     DeviceRead(Result<DeviceSnapshot, BluetoothError>),
 }
 
-fn radio_choice_list(radios: &[RadioDescription]) -> gtk::StringList {
-    let radio_labels: Vec<&str> = radios
-        .iter()
-        .map(|radio| radio.radio_label.as_str())
-        .collect();
-    gtk::StringList::new(&radio_labels)
-}
-
 fn launch_device_list(
     session: &BluetoothSession,
     adapter_name: &str,
@@ -129,19 +128,17 @@ fn launch_device_list(
         .forward(sender.input_sender(), MainViewInput::DeviceList)
 }
 
-fn launch_adapter_settings(
+fn launch_adapter_page(
     session: &BluetoothSession,
     adapter: &AdapterSnapshot,
-    preferences: &AppPreferences,
     sender: &ComponentSender<MainView>,
-) -> Controller<AdapterSettings> {
-    AdapterSettings::builder()
-        .launch(AdapterSettingsInit {
+) -> Controller<AdapterPage> {
+    AdapterPage::builder()
+        .launch(AdapterPageInit {
             session: session.clone(),
             adapter: adapter.clone(),
-            preferences: preferences.clone(),
         })
-        .forward(sender.input_sender(), MainViewInput::AdapterSettings)
+        .forward(sender.input_sender(), MainViewInput::AdapterPage)
 }
 
 impl MainView {
@@ -170,14 +167,6 @@ impl MainView {
         if self.is_scanning() { "Stop" } else { "Scan" }
     }
 
-    fn selected_radio_position(&self) -> u32 {
-        self.radios
-            .iter()
-            .position(|radio| radio.adapter_name == self.adapter.adapter_name)
-            .and_then(|radio_position| u32::try_from(radio_position).ok())
-            .unwrap_or_default()
-    }
-
     fn radio_label(&self, adapter_name: &str) -> String {
         self.radios
             .iter()
@@ -188,11 +177,28 @@ impl MainView {
             )
     }
 
-    fn show_settings(&mut self) {
-        self.content_page = ContentPage::BluetoothSettings;
+    fn show_app_settings(&mut self) {
+        self.content_page = ContentPage::AppSettings;
         self.content_slot
-            .set_child(Some(&**self.adapter_settings.widget()));
+            .set_child(Some(&**self.app_settings.widget()));
         self.content_title = SETTINGS_TITLE.to_string();
+    }
+
+    fn show_adapter_page(&mut self) {
+        self.content_page = ContentPage::Adapter;
+        self.content_slot
+            .set_child(Some(&**self.adapter_page.widget()));
+        self.content_title = self.adapter.radio_label.clone();
+    }
+
+    fn mark_active_adapter(&mut self) {
+        let active_adapter_name = self.adapter.adapter_name.clone();
+        self.adapter_rows
+            .guard()
+            .iter_mut()
+            .for_each(|adapter_row| {
+                adapter_row.active = adapter_row.radio.adapter_name == active_adapter_name;
+            });
     }
 
     fn open_device(&mut self, snapshot: DeviceSnapshot, sender: &ComponentSender<Self>) {
@@ -251,8 +257,7 @@ impl MainView {
             &self.preferences,
             sender,
         );
-        self.adapter_settings =
-            launch_adapter_settings(&self.session, &adapter, &self.preferences, sender);
+        self.adapter_page = launch_adapter_page(&self.session, &adapter, sender);
         self.device_list_slot
             .set_child(Some(self.device_list.widget()));
         self.transfers.emit(TransfersInput::AdapterSwitched(
@@ -260,7 +265,8 @@ impl MainView {
         ));
         self.device_names.clear();
         self.adapter = adapter;
-        self.show_settings();
+        self.mark_active_adapter();
+        self.show_adapter_page();
     }
 
     fn handle_device_list_output(
@@ -281,7 +287,7 @@ impl MainView {
     fn shown_device_address(&self) -> Option<overskride_bluetooth::Address> {
         match &self.content_page {
             ContentPage::Device(device_page) => Some(device_page.model().shown_address()),
-            ContentPage::BluetoothSettings => None,
+            ContentPage::AppSettings | ContentPage::Adapter => None,
         }
     }
 
@@ -302,7 +308,7 @@ impl MainView {
             DeviceChange::Disappeared(address) => {
                 self.device_names.remove(&address);
                 if shown_address == Some(address) {
-                    self.show_settings();
+                    self.show_adapter_page();
                 }
             }
         }
@@ -320,7 +326,7 @@ impl MainView {
             }
             DevicePageOutput::Forgotten { hint, rescan } => {
                 root.add_toast(adw::Toast::new(&hint));
-                self.show_settings();
+                self.show_adapter_page();
                 if rescan {
                     self.start_scan(sender);
                 }
@@ -384,36 +390,29 @@ impl Component for MainView {
                                     set_title: "Settings",
 
                                     adw::ActionRow {
-                                        set_title: "Bluetooth Settings",
+                                        set_title: "Settings",
+                                        set_subtitle: "Received files and device list",
                                         set_activatable: true,
+                                        add_prefix = &gtk::Image {
+                                            set_icon_name: Some("emblem-system-symbolic"),
+                                        },
                                         add_suffix = &gtk::Image {
                                             set_icon_name: Some("go-next-symbolic"),
                                         },
-                                        connect_activated => MainViewInput::ShowSettings,
+                                        connect_activated => MainViewInput::ShowAppSettings,
                                     },
                                 },
 
-                                adw::PreferencesGroup {
-                                    set_title: "Radio",
-                                    set_description: Some("Bonds and trust are stored per radio"),
-                                    #[watch]
-                                    set_visible: model.radios.len() > 1,
-
-                                    adw::ComboRow {
-                                        set_title: "Active Radio",
-                                        set_model: Some(&radio_choice_list(&model.radios)),
-                                        #[watch]
-                                        #[block_signal(radio_handler)]
-                                        set_selected: model.selected_radio_position(),
-                                        connect_selected_notify[sender] => move |combo_row| {
-                                            sender.input(MainViewInput::RadioSelected(combo_row.selected()));
-                                        } @radio_handler,
-                                    },
+                                #[local_ref]
+                                adapter_group -> adw::PreferencesGroup {
+                                    set_title: "Adapters",
+                                    set_description: Some("Bonds and trust are stored per adapter"),
                                 },
 
                                 adw::PreferencesGroup {
                                     set_title: "Devices",
-                                    set_description: Some("Known to this radio, plus devices found by scanning."),
+                                    #[watch]
+                                    set_description: Some(&format!("Known to {}, plus devices found by scanning.", model.adapter.radio_label)),
 
                                     adw::ActionRow {
                                         #[watch]
@@ -509,7 +508,19 @@ impl Component for MainView {
         } = view_init;
         let device_list =
             launch_device_list(&session, &adapter.adapter_name, &preferences, &sender);
-        let adapter_settings = launch_adapter_settings(&session, &adapter, &preferences, &sender);
+        let adapter_page = launch_adapter_page(&session, &adapter, &sender);
+        let app_settings = AppSettingsPage::builder()
+            .launch(preferences.clone())
+            .detach();
+        let mut adapter_rows = FactoryVecDeque::builder()
+            .launch(adw::PreferencesGroup::default())
+            .forward(sender.input_sender(), MainViewInput::AdapterActivated);
+        radios.iter().for_each(|radio| {
+            adapter_rows.guard().push_back(AdapterRowInit {
+                radio: radio.clone(),
+                active: radio.adapter_name == adapter.adapter_name,
+            });
+        });
         let transfers = TransfersPopover::builder()
             .launch(TransfersInit {
                 session: session.clone(),
@@ -521,7 +532,7 @@ impl Component for MainView {
         let device_list_slot = adw::Bin::new();
         let content_slot = adw::Bin::new();
         device_list_slot.set_child(Some(device_list.widget()));
-        content_slot.set_child(Some(&**adapter_settings.widget()));
+        content_slot.set_child(Some(&**adapter_page.widget()));
 
         let hide_unknown_sender = sender.input_sender().clone();
         preferences.settings().connect_changed(
@@ -553,6 +564,7 @@ impl Component for MainView {
                 .drop_on_shutdown()
         });
 
+        let initial_content_title = adapter.radio_label.clone();
         let model = Self {
             session,
             obex,
@@ -562,17 +574,20 @@ impl Component for MainView {
             device_names: HashMap::new(),
             scan_state: ScanState::Idle,
             scan_generation: 0,
-            content_page: ContentPage::BluetoothSettings,
-            content_title: SETTINGS_TITLE.to_string(),
+            content_page: ContentPage::Adapter,
+            content_title: initial_content_title,
             show_content: false,
             device_list,
-            adapter_settings,
+            adapter_page,
+            app_settings,
+            adapter_rows,
             transfers,
             device_list_slot: device_list_slot.clone(),
             content_slot: content_slot.clone(),
         };
         let device_list_slot = &device_list_slot;
         let content_slot = &content_slot;
+        let adapter_group = model.adapter_rows.widget();
         let widgets = view_output!();
 
         let refresh_sender = sender.input_sender().clone();
@@ -594,23 +609,16 @@ impl Component for MainView {
         match input {
             MainViewInput::ScanToggled(true) => self.start_scan(&sender),
             MainViewInput::ScanToggled(false) => self.scan_state = ScanState::Idle,
-            MainViewInput::RadioSelected(radio_position) => {
-                let Some(radio) = usize::try_from(radio_position)
-                    .ok()
-                    .and_then(|position| self.radios.get(position))
-                else {
-                    return;
-                };
-                if radio.adapter_name != self.adapter.adapter_name {
-                    self.switch_adapter(
-                        radio.adapter_name.clone(),
-                        AfterAdapterSwitch::ShowSettings,
-                        &sender,
-                    );
+            MainViewInput::AdapterActivated(adapter_name) => {
+                if adapter_name == self.adapter.adapter_name {
+                    self.show_adapter_page();
+                } else {
+                    self.switch_adapter(adapter_name, AfterAdapterSwitch::ShowAdapter, &sender);
                 }
+                self.show_content = true;
             }
-            MainViewInput::ShowSettings => {
-                self.show_settings();
+            MainViewInput::ShowAppSettings => {
+                self.show_app_settings();
                 self.show_content = true;
             }
             MainViewInput::BackToSidebar => self.show_content = false,
@@ -634,13 +642,13 @@ impl Component for MainView {
             MainViewInput::DevicePage(device_page_output) => {
                 self.handle_device_page_output(device_page_output, root, &sender);
             }
-            MainViewInput::AdapterSettings(AdapterSettingsOutput::Failed(failure)) => {
+            MainViewInput::AdapterPage(AdapterPageOutput::Failed(failure)) => {
                 root.add_toast(adw::Toast::new(&failure.to_string()));
             }
             MainViewInput::Transfers(TransfersOutput::ReceivingFile { file_name }) => {
                 root.add_toast(adw::Toast::new(&format!("Receiving {file_name}")));
             }
-            MainViewInput::AdapterSettings(AdapterSettingsOutput::AdapterChanged(adapter)) => {
+            MainViewInput::AdapterPage(AdapterPageOutput::AdapterChanged(adapter)) => {
                 if adapter.powered && !self.adapter.powered {
                     self.device_list = launch_device_list(
                         &self.session,
@@ -729,7 +737,7 @@ impl Component for MainView {
                     let adapter_name = adapter.adapter_name.clone();
                     self.install_adapter(adapter, &sender);
                     match after_switch {
-                        AfterAdapterSwitch::ShowSettings => {}
+                        AfterAdapterSwitch::ShowAdapter => {}
                         AfterAdapterSwitch::StartScan => self.start_scan(&sender),
                         AfterAdapterSwitch::OpenDevice(address) => {
                             let session = self.session.clone();

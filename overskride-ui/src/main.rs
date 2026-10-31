@@ -1,6 +1,8 @@
 mod about;
-mod adapter_settings;
+mod adapter_page;
+mod adapter_row;
 mod app_preferences;
+mod app_settings_page;
 mod app_window;
 mod device_list;
 mod device_page;

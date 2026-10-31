@@ -1,0 +1,151 @@
+use std::path::PathBuf;
+
+use relm4::adw;
+use relm4::adw::prelude::*;
+use relm4::gtk;
+use relm4::gtk::gio;
+use relm4::prelude::*;
+
+use crate::app_preferences::AppPreferences;
+use crate::widgets::page_templates::{ClampedPage, PageHeader};
+
+pub struct AppSettingsPage {
+    preferences: AppPreferences,
+    received_files_folder: PathBuf,
+    folder_changed: bool,
+}
+
+#[derive(Debug)]
+pub enum AppSettingsInput {
+    ChooseReceivedFilesFolder,
+    ReceivedFilesFolderChosen(PathBuf),
+}
+
+#[relm4::component(pub)]
+impl SimpleComponent for AppSettingsPage {
+    type Init = AppPreferences;
+    type Input = AppSettingsInput;
+    type Output = ();
+
+    view! {
+        #[template]
+        ClampedPage {
+            #[template_child]
+            page_content {
+                #[template]
+                PageHeader {
+                    #[template_child]
+                    header_icon {
+                        set_icon_name: Some("emblem-system-symbolic"),
+                    },
+                    #[template_child]
+                    header_title {
+                        set_label: "Settings",
+                    },
+                },
+
+                adw::PreferencesGroup {
+                    set_title: "Received Files",
+
+                    #[name = "auto_accept_row"]
+                    adw::SwitchRow {
+                        set_title: "Auto Accept",
+                        set_subtitle: "Accept files from trusted devices without asking",
+                    },
+
+                    #[name = "keep_accepting_row"]
+                    adw::SwitchRow {
+                        set_title: "Keep Accepting",
+                        set_subtitle: "After accepting one file, accept further files from the same device",
+                    },
+
+                    adw::ActionRow {
+                        set_title: "Location",
+                        set_subtitle_selectable: true,
+                        #[track(model.folder_changed)]
+                        set_subtitle: &model.received_files_folder.to_string_lossy(),
+
+                        add_suffix = &gtk::Button {
+                            set_icon_name: "folder-symbolic",
+                            set_valign: gtk::Align::Center,
+                            set_tooltip_text: Some("Choose Folder"),
+                            add_css_class: "flat",
+                            connect_clicked => AppSettingsInput::ChooseReceivedFilesFolder,
+                        },
+                    },
+                },
+
+                adw::PreferencesGroup {
+                    set_title: "Device List",
+
+                    #[name = "hide_unknown_row"]
+                    adw::SwitchRow {
+                        set_title: "Hide Unknown Devices",
+                        set_subtitle: "Devices without a name stay out of the device list",
+                    },
+                },
+            },
+        }
+    }
+
+    fn init(
+        preferences: Self::Init,
+        root: Self::Root,
+        sender: ComponentSender<Self>,
+    ) -> ComponentParts<Self> {
+        let model = Self {
+            received_files_folder: preferences.received_files_folder(),
+            preferences,
+            folder_changed: true,
+        };
+        let widgets = view_output!();
+
+        let settings = model.preferences.settings();
+        settings
+            .bind(
+                "auto-accept-from-trusted",
+                &widgets.auto_accept_row,
+                "active",
+            )
+            .build();
+        settings
+            .bind("first-auto-accept", &widgets.keep_accepting_row, "active")
+            .build();
+        settings
+            .bind("hide-unknown-devices", &widgets.hide_unknown_row, "active")
+            .build();
+
+        ComponentParts { model, widgets }
+    }
+
+    fn update(&mut self, input: Self::Input, sender: ComponentSender<Self>) {
+        self.folder_changed = false;
+        match input {
+            AppSettingsInput::ChooseReceivedFilesFolder => {
+                let folder_dialog = gtk::FileDialog::builder()
+                    .title("Choose Where Received Files Go")
+                    .modal(true)
+                    .initial_folder(&gio::File::for_path(&self.received_files_folder))
+                    .build();
+                let input_sender = sender.input_sender().clone();
+                relm4::spawn_local(async move {
+                    let parent_window = relm4::main_application().active_window();
+                    let Ok(chosen_folder) = folder_dialog
+                        .select_folder_future(parent_window.as_ref())
+                        .await
+                    else {
+                        return;
+                    };
+                    if let Some(folder_path) = chosen_folder.path() {
+                        input_sender.emit(AppSettingsInput::ReceivedFilesFolderChosen(folder_path));
+                    }
+                });
+            }
+            AppSettingsInput::ReceivedFilesFolderChosen(folder_path) => {
+                self.preferences.set_received_files_folder(&folder_path);
+                self.received_files_folder = folder_path;
+                self.folder_changed = true;
+            }
+        }
+    }
+}
