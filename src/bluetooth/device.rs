@@ -1,13 +1,15 @@
 use async_channel::Sender;
 use bluer::{AdapterEvent, AdapterProperty, DeviceEvent, DeviceProperty};
 use futures::{pin_mut, stream, stream::SelectAll, Stream, StreamExt};
+use std::collections::HashSet;
 use std::pin::Pin;
 use std::sync::OnceLock;
 use tokio_util::sync::CancellationToken;
 use uuid::uuid;
 
-use crate::{message::Message, window::{DEVICES_LUT}, agent::wait_for_dialog_exit, audio_profiles::AudioProfiles, battery::CANCEL_BATTERY_CHECK, services};
+use crate::{message::Message, agent::wait_for_dialog_exit, audio_profiles::AudioProfiles, battery::CANCEL_BATTERY_CHECK, services};
 use crate::window::OVERSKRIDE_PROPS;
+use crate::bluetooth_device::DeviceSnapshot;
 
 use crate::pairing_stages::{read_pairing_stages, send_current_pairing_stages, send_pairing_stages, ConnectionPolicy, PairingStep};
 use crate::radios::list_radios;
@@ -98,7 +100,6 @@ pub async fn set_device_active(address: bluer::Address, sender: Sender<Message>,
     send_current_pairing_stages(&device, &sender).await?;
 	sender.send(Message::SwitchActiveSpinner(false)).await.expect("cannot set spinner to show.");
     sender.send(Message::SwitchActive(updated_state, address, true)).await.expect("cannot send message");
-	sender.send(Message::InvalidateSort()).await.expect("cannot set device name.");
 
 	// sender.send(Message::SwitchActiveSpinner(false)).expect("cannot set spinner to show.");
     // connected_switch_row.set_active(!connected_switch_row.active());
@@ -180,13 +181,7 @@ pub async fn pair_device_again(address: bluer::Address, sender: Sender<Message>,
     let is_gamepad = read_pairing_stages(&device).await?.is_gamepad;
 
     adapter.remove_device(address).await?;
-    unsafe {
-        let mut devices_lut = DEVICES_LUT.clone().unwrap();
-        devices_lut.remove(&address);
-        DEVICES_LUT = Some(devices_lut);
-    }
-    sender.send(Message::RemoveDevice(device_name.clone(), address)).await.expect("can't send message");
-    sender.send(Message::UpdateListBoxImage()).await.expect("can't send message");
+    sender.send(Message::RemoveDevice(address)).await.expect("can't send message");
 
     request_device_scan(true);
 
@@ -201,40 +196,15 @@ pub async fn pair_device_again(address: bluer::Address, sender: Sender<Message>,
     Ok(())
 }
 
-/// Sets the currently selected device's name, updating the entry and listboxrow accordingly.
 pub async fn set_device_name(address: bluer::Address, name: String, sender: Sender<Message>, adapter_name: String) -> bluer::Result<()> {
-	let adapter = bluer::Session::new().await?.adapter(adapter_name.as_str())?;
-	let device = adapter.device(address)?;
-    let mut lut = unsafe {
-    	DEVICES_LUT.clone().unwrap()
-    };
+    let adapter = bluer::Session::new().await?.adapter(adapter_name.as_str())?;
+    let device = adapter.device(address)?;
 
-    let set_name = name.trim().to_string();
-
-    for key in lut.keys() {
-		if let Some(pair) = lut.get_key_value(key) {
-			if pair.1.trim() == set_name && pair.0 != &address {
-                sender.send(Message::SetNameValid(false)).await.expect("cannot send message");
-				return Err(bluer::Error { kind: bluer::ErrorKind::AlreadyExists, message: "device-name-exists".to_string() });
-			}
-		}
-	}
-
-
-    device.set_alias(set_name).await?;
+    device.set_alias(name.trim().to_string()).await?;
     let current_alias = device.alias().await?;
 
-    unsafe {
-        lut.remove(&address);
-        lut.insert(address, current_alias.clone());
-        DEVICES_LUT = Some(lut);
-    }
-
-	sender.send(Message::SwitchName(current_alias, None, address)).await.expect("cannot set device name.");
- 	sender.send(Message::SetNameValid(true)).await.expect("cannot send message");
-
-	tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-	sender.send(Message::InvalidateSort()).await.expect("cannot set device name.");
+    sender.send(Message::SwitchDeviceAlias(address, current_alias)).await.expect("cannot send message");
+    sender.send(Message::SetNameValid(true)).await.expect("cannot send message");
     Ok(())
 }
 
@@ -247,7 +217,6 @@ pub async fn get_device_properties(address: bluer::Address, sender: Sender<Messa
 	let device = adapter.device(address)?;
 
     let is_active = device.is_connected().await?;
-    let alias = device.alias().await?;
     let icon_name = match device.icon().await? {
         Some(icon) => {
             icon
@@ -257,7 +226,7 @@ pub async fn get_device_properties(address: bluer::Address, sender: Sender<Messa
         },
     };
 
-    sender.send(Message::SwitchPage(Some(alias), Some(icon_name))).await.expect("cannot set device alias and icon in page.");
+    sender.send(Message::SwitchPage(icon_name)).await.expect("cannot set device icon in page.");
     sender.send(Message::SwitchActive(is_active, address, true)).await.expect("cannot set device active in page.");
     
         send_current_pairing_stages(&device, &sender).await?;
@@ -332,16 +301,8 @@ pub async fn remove_device(address: bluer::Address, sender: Sender<Message>, ada
         println!("removing device...");
         let name = device.alias().await?;
         adapter.remove_device(address).await?;
-        unsafe {
-            let mut devices_lut = DEVICES_LUT.clone().unwrap();
-            if devices_lut.contains_key(&address) {
-                devices_lut.remove(&address);
-                DEVICES_LUT = Some(devices_lut);
-            }
-        }
 
-        sender.send(Message::RemoveDevice(name.clone(), address)).await.expect("can't send message");
-        sender.send(Message::UpdateListBoxImage()).await.expect("can't send message");
+        sender.send(Message::RemoveDevice(address)).await.expect("can't send message");
 
         let removed_device_hint = format!("Removed {}. To pair it again, put it in pairing mode and press Scan.", name);
         sender.send(Message::PopupError(removed_device_hint, adw::ToastPriority::Normal)).await.expect("can't send message");
@@ -390,6 +351,7 @@ pub async fn get_devices_continuous(sender: Sender<Message>, adapter_name: Strin
     sender.send(Message::PopulateRadios(list_radios(&session).await?)).await.expect("cannot send message");
 
     let mut all_change_events = SelectAll::new();
+    let mut subscribed_device_addresses: HashSet<bluer::Address> = HashSet::new();
 
 	let sender_clone = sender.clone();
 
@@ -418,55 +380,23 @@ pub async fn get_devices_continuous(sender: Sender<Message>, adapter_name: Strin
             Some(device_event) = device_events.next() => {
                 match device_event {
                     AdapterEvent::DeviceAdded(addr) => {
-		                if adapter.is_powered().await? {
-	                        let supposed_device = adapter.device(addr);
-
-                            let devices_lut = unsafe {
-                                DEVICES_LUT.clone().unwrap()
-                            };
-
-                            if !devices_lut.contains_key(&addr) {
-                                if let Ok(added_device) = supposed_device {
-	                                sender.send(Message::AddRow(added_device)).await.expect("cannot send message {}");
-	                                sender.send(Message::UpdateListBoxImage()).await.expect("cannot send message {}");
-	                                //println!("supposedly sent");
-
-	                                let device = adapter.device(addr)?;
-	                                let change_events = device.events().await?.map(move |evt| (addr, evt));
-	                                all_change_events.push(change_events);
-                                }
-                                else {
-                                	println!("device isn't present, something went wrong.");
-                                }
+                        if adapter.is_powered().await? && subscribed_device_addresses.insert(addr) {
+                            let added_device = adapter.device(addr)?;
+                            match DeviceSnapshot::read_from_device(&added_device, adapter).await {
+                                Ok(device_snapshot) => sender.send(Message::AddDevice(device_snapshot)).await.expect("cannot send message"),
+                                Err(snapshot_error) => println!("cannot read added device {}: {:?}", addr, snapshot_error),
                             }
-                            else {
-                                println!("device already exists, not adding again.");
-                            }
-		                }
+
+                            let change_events = added_device.events().await?.map(move |evt| (addr, evt));
+                            all_change_events.push(change_events);
+                        }
                     }
                     AdapterEvent::DeviceRemoved(addr) => {
-   		                if adapter.is_powered().await? {
-                            let mut devices_lut = unsafe {
-                                DEVICES_LUT.clone().unwrap()
-                            };
-
-                            let device_name = if devices_lut.contains_key(&addr) {
-                                let lut = devices_lut.get(&addr).unwrap().clone();
-                                unsafe {
-                                    devices_lut.remove(&addr);
-                                    DEVICES_LUT = Some(devices_lut);
-                                }
-
-                                lut
-                            }
-                            else {
-                                String::new()
-                            };
-
-                            sender_clone.send(Message::RemoveDevice(device_name.clone(), addr)).await.expect("cannot send message");
-                            sender_clone.send(Message::UpdateListBoxImage()).await.expect("cannot send message");
-                            println!("Device removed: {:?} {}\n", addr, device_name.clone());
-						}
+                        if adapter.is_powered().await? {
+                            subscribed_device_addresses.remove(&addr);
+                            sender_clone.send(Message::RemoveDevice(addr)).await.expect("cannot send message");
+                            println!("Device removed: {:?}\n", addr);
+                        }
                     },
                     AdapterEvent::PropertyChanged(AdapterProperty::Powered(powered)) => {
                         tokio::time::sleep(std::time::Duration::from_secs_f32(0.5)).await;
@@ -504,38 +434,15 @@ pub async fn get_devices_continuous(sender: Sender<Message>, adapter_name: Strin
                     },
                     
                     DeviceProperty::Alias(name) => {
-                        let current_address = OVERSKRIDE_PROPS.lock().unwrap().address;
-
-                        if addr == current_address {
-                            tokio::time::sleep(std::time::Duration::from_secs_f32(0.01)).await;
-                            sender_clone.send(Message::SwitchName(name.clone(), None, addr)).await.expect("cannot send message");
-                            sender_clone.send(Message::SwitchPage(Some(name.clone()), None)).await.expect("cannot send message");
-                        }
-                        else {
-                            let hashmap = unsafe {
-                            	DEVICES_LUT.clone().unwrap()
-                            };
-
-                            let empty = String::new();
-                            let old_alias = hashmap.get(&addr).unwrap_or(&empty);
-
-                            sender_clone.send(Message::SwitchName(name.clone(), Some(old_alias.to_string()), addr)).await.expect("cannot send message");
-                        }
+                        sender_clone.send(Message::SwitchDeviceAlias(addr, name)).await.expect("cannot send message");
                     },
                     DeviceProperty::Icon(icon) => {
-                        let current_address = OVERSKRIDE_PROPS.lock().unwrap().address;
-
-                       	if addr == current_address {
-                            tokio::time::sleep(std::time::Duration::from_secs_f32(0.5)).await;
-                            sender_clone.send(Message::SwitchPage(None, Some(icon))).await.expect("cannot send message");
+                        if addr == current_address {
+                            sender_clone.send(Message::SwitchDeviceIcon(icon)).await.expect("cannot send message");
                         }
                     },
                     DeviceProperty::Rssi(rssi) => {
-                       	let device = unsafe {
-                            DEVICES_LUT.clone().unwrap().get(&addr).unwrap_or(&"Unknown Device".to_string()).to_string()
-                        };
-                        sender_clone.send(Message::SwitchRssi(device, rssi as i32)).await.expect("cannot send message");
-                        sender_clone.send(Message::InvalidateSort()).await.expect("cannot send message");
+                        sender_clone.send(Message::SwitchDeviceRssi(addr, rssi as i32)).await.expect("cannot send message");
                     },
                     event => {
                         println!("unhandled device event: {:?}", event);

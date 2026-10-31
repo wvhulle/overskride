@@ -149,29 +149,43 @@ template $OverskrideWindow: Adw.ApplicationWindow {
                 overlay-scrolling: true;
                 
                 [start]
-                ListBox main_listbox {
+                ListView device_list_view {
                   margin-top: 12;
                   margin-bottom: 12;
-                  margin-start: 1;
-                  margin-end: 1;
-                  styles [ "boxed-list", "separators" ]
+                  styles [ "navigation-sidebar" ]
                   valign: fill;
-                  // height-request: 250;
                   visible: false;
 
-                   // Adw.ActionRow {
-                   //   title: "Bluetooth Headphones";
-                   //   subtitle: "dummy, doesn't work";
-                   // }
-                   // Adw.ActionRow {
-                   //   title: "Mom's Phone";
-                   //   subtitle: "dummy, doesn't work";
-                   // }
-                   // Adw.ActionRow {
-                   //   title: "HP Laptop";
-                   //   subtitle: "dummy, doesn't work";
-                   // }              
-                }                
+                  factory: BuilderListItemFactory {
+                    template ListItem {
+                      child: Box {
+                        spacing: 10;
+                        margin-top: 8;
+                        margin-bottom: 8;
+                        margin-start: 6;
+                        margin-end: 6;
+
+                        Label {
+                          label: bind template.item as <$BluetoothDevice>.display-name;
+                          xalign: 0;
+                          hexpand: true;
+                          ellipsize: end;
+                        }
+
+                        Image {
+                          icon-name: bind template.item as <$BluetoothDevice>.pairing-status-icon-name;
+                          tooltip-text: bind template.item as <$BluetoothDevice>.pairing-status-tooltip;
+                          visible: bind template.item as <$BluetoothDevice>.pairing-status-visible;
+                          css-classes: bind template.item as <$BluetoothDevice>.pairing-status-css-classes;
+                        }
+
+                        Image {
+                          icon-name: bind template.item as <$BluetoothDevice>.rssi-icon-name;
+                        }
+                      };
+                    }
+                  };
+                }
               }
             }
           }
@@ -242,8 +256,10 @@ template $OverskrideWindow: Adw.ApplicationWindow {
                     pixel-size: 80;
                   }
                   Label device_title {
-                    label: "<span font_weight='bold' size='x-large'>Bluetooth Settings</span>";
-                    use-markup: true;
+                    label: bind template.selected-device as <$BluetoothDevice>.display-name;
+                    wrap: true;
+                    justify: center;
+                    styles ["title-1"]
                   }
                 }
 
@@ -293,9 +309,17 @@ template $OverskrideWindow: Adw.ApplicationWindow {
 
                     Adw.EntryRow device_name_entry {
                       title: "Device Name";
-                      text: "Bluetooth Headset";
+                      text: bind template.selected-device as <$BluetoothDevice>.alias;
+                      editable: bind template.device-rename-pending inverted;
                       input-purpose: alpha;
                       show-apply-button: true;
+
+                      [suffix]
+                      Spinner {
+                        tooltip-text: "Renaming…";
+                        visible: bind template.device-rename-pending;
+                        spinning: bind template.device-rename-pending;
+                      }
                     }
                     
                     

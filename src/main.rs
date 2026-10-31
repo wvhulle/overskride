@@ -34,7 +34,7 @@ mod window;
 #[path = "obex/obex.rs"] mod obex;
 #[path = "obex/obex_utils.rs"] mod obex_utils;
 #[path = "widgets/connected_switch_row.rs"] mod connected_switch_row;
-#[path = "widgets/device_action_row.rs"] mod device_action_row;
+#[path = "bluetooth/bluetooth_device.rs"] mod bluetooth_device;
 #[path = "widgets/receiving_popover.rs"] mod receiving_popover;
 #[path = "widgets/receiving_row.rs"] mod receiving_row;
 #[path = "widgets/startup_error_message.rs"] mod startup_error_message;

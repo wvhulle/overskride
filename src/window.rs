@@ -28,10 +28,9 @@ use crate::agent::register_bluetooth_agent;
 use crate::application::OverskrideApplication;
 use crate::audio_profiles;
 use crate::bluetooth_settings::get_store_location_from_dialog;
-use crate::device_action_row::DeviceActionRow;
+use crate::bluetooth_device::{BluetoothDevice, DeviceSnapshot, UNKNOWN_DEVICE_NAME};
 use crate::message::Message;
 
-use crate::pairing_stages::read_pairing_stages;
 use crate::pairing_timeline::{PairingStepAction, PairingTimeline, ServiceAuthorizationAnswer};
 use crate::obex::{self, register_obex_agent};
 use crate::receiving_row::ReceivingRow;
@@ -43,10 +42,9 @@ use crate::Singletons::OverskrideProperties;
 
 use adw::glib::wrapper;
 use async_channel::Sender;
-use std::cell::{OnceCell, RefCell};
+use std::cell::{Cell, OnceCell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
-use std::str::FromStr;
 use std::sync::{Mutex, OnceLock};
 use tokio::runtime::Runtime;
 use lazy_static::lazy_static;
@@ -57,7 +55,6 @@ lazy_static! {
 
 // U N S A F E T Y
 static mut RSSI_LUT: Option<HashMap<String, i32>> = None;
-pub static mut DEVICES_LUT: Option<HashMap<bluer::Address, String>> = None;
 pub static mut ADAPTERS_LUT: Option<HashMap<String, String>> = None;
 
 mod imp {
@@ -67,11 +64,20 @@ mod imp {
     };
 
     use super::*;
-    #[derive(Debug, Default, gtk::CompositeTemplate)]
+    #[derive(Debug)]
+    pub struct DeviceListModels {
+        pub store: gio::ListStore,
+        pub filter: gtk::CustomFilter,
+        pub sorter: gtk::CustomSorter,
+        pub selection: gtk::SingleSelection,
+    }
+
+    #[derive(Debug, Default, gtk::CompositeTemplate, glib::Properties)]
     #[template(resource = "/io/github/kaii_lb/Overskride/gtk/window.ui")]
+    #[properties(wrapper_type = super::OverskrideWindow)]
     pub struct OverskrideWindow {
         #[template_child]
-        pub main_listbox: TemplateChild<gtk::ListBox>,
+        pub device_list_view: TemplateChild<gtk::ListView>,
         #[template_child]
         pub connected_switch_row: TemplateChild<ConnectedSwitchRow>,
         #[template_child]
@@ -94,8 +100,6 @@ mod imp {
         pub bluetooth_settings_row: TemplateChild<adw::ActionRow>,
         #[template_child]
         pub device_icon: TemplateChild<gtk::Image>,
-        #[template_child]
-        pub device_title: TemplateChild<gtk::Label>,
         #[template_child]
         pub main_stack: TemplateChild<gtk::Stack>,
         #[template_child]
@@ -161,6 +165,12 @@ mod imp {
         pub pending_device_selection: RefCell<Option<bluer::Address>>,
         pub pending_service_authorization: RefCell<Option<(bluer::Address, String, String)>>,
         pub service_detail_rows: RefCell<Vec<adw::ActionRow>>,
+        pub device_list_models: OnceCell<DeviceListModels>,
+
+        #[property(get, set, nullable)]
+        pub selected_device: RefCell<Option<BluetoothDevice>>,
+        #[property(get, set)]
+        pub device_rename_pending: Cell<bool>,
     }
 
     #[glib::object_subclass]
@@ -177,6 +187,7 @@ mod imp {
             BatteryLevelIndicator::ensure_type();
             
             PairingTimeline::ensure_type();
+            BluetoothDevice::ensure_type();
 
             klass.bind_template();
             /*klass.install_action("win.refresh_devices", None, move |win, _, _| {
@@ -189,6 +200,7 @@ mod imp {
         }
     }
 
+    #[glib::derived_properties]
     impl ObjectImpl for OverskrideWindow {
         fn constructed(&self) {
             self.parent_constructed();
@@ -284,15 +296,8 @@ impl OverskrideWindow {
 
                 match msg {
                     Message::SwitchPairingStages(address, stages) => {
-                        let listbox = clone.imp().main_listbox.get();
-                        let mut listbox_index = 0;
-
-                        while let Some(row) = listbox.row_at_index(listbox_index) {
-                            let action_row = row.downcast::<DeviceActionRow>().expect("cannot downcast to action row.");
-                            if action_row.get_bluer_address() == address {
-                                action_row.set_pairing_progress(&stages);
-                            }
-                            listbox_index += 1;
+                        if let Some(bluetooth_device) = clone.find_device_by_address(address) {
+                            bluetooth_device.apply_pairing_stages(&stages);
                         }
 
                         if address == OVERSKRIDE_PROPS.lock().unwrap().address {
@@ -351,9 +356,6 @@ impl OverskrideWindow {
                         }
                     }
                     Message::SwitchActive(active, address, is_current) => {
-                        let listbox = clone.imp().main_listbox.get();
-                        let mut listbox_index = 0;
-
                         if is_current {
                             let connected_switch_row = clone.imp().connected_switch_row.get();
                             connected_switch_row.set_toggle_switch_active(active);
@@ -366,152 +368,51 @@ impl OverskrideWindow {
                             }
                         }
 
-                        // please optimize
-                        // sets the device action row's active for sorting purposes
-                        while let Some(row) = listbox.row_at_index(listbox_index) {
-                            let action_row = row.downcast::<DeviceActionRow>().expect("cannot downcast to action row.");
-                            if action_row.get_bluer_address() == address {
-                                action_row.set_connected(active);
-                                // println!("connected: {}", action_row.connected());
-                            } else if address == bluer::Address::any() {
-                                action_row.set_connected(false);
-                            }
-
-                            listbox_index += 1;
-                        }
+                        let device_store = clone.device_list_models().store.clone();
+                        device_store
+                            .iter::<BluetoothDevice>()
+                            .filter_map(Result::ok)
+                            .filter(|bluetooth_device| address == bluer::Address::any() || bluetooth_device.bluer_address() == address)
+                            .for_each(|bluetooth_device| bluetooth_device.set_connected(active && address != bluer::Address::any()));
                     }
                     Message::SwitchActiveSpinner(spinning) => {
                         let connected_switch_row = clone.imp().connected_switch_row.get();
 
                         connected_switch_row.set_row_spinning(spinning);
                     }
-                    Message::SwitchName(alias, optional_old_alias, address) => {
-                        let list_box = clone.imp().main_listbox.get();
-                        let index = OVERSKRIDE_PROPS.lock().unwrap().current_index;
-                        let mut listbox_index = 0;
-
-                        // if the old alias exists then just get the row directly
-                        // else loop over each row till finding the one that matches and change its name
-                        // useful if other device changes name when not selected
-                        if optional_old_alias.is_none() {
-                            if let Some(some_row) = list_box.row_at_index(index) {
-                                let action_row = some_row.downcast::<DeviceActionRow>().unwrap();
-                                action_row.set_title(alias.as_str());
-                            }
-                        } else {
-                            while let Some(row) = list_box.clone().row_at_index(listbox_index) {
-                                //println!("{}", index);
-                                let action_row = row.downcast::<DeviceActionRow>().expect("cannot downcast to action row.");
-                                //println!("{:?}", action_row.clone().title());
-                                if action_row.title() == optional_old_alias.clone().unwrap() && action_row.get_bluer_address() == address {
-                                    action_row.set_title(alias.as_str());
-                                }
-
-                                listbox_index += 1;
-                            }
-                        }
-                        // don't set text if the text is already set
-                        // #philosophy
-                        let device_name_entry = clone.imp().device_name_entry.get();
-                        if device_name_entry.text() != alias {
-                            device_name_entry.set_text(&alias);
+                    Message::SwitchDeviceAlias(address, alias) => {
+                        if let Some(bluetooth_device) = clone.find_device_by_address(address) {
+                            bluetooth_device.set_alias(alias);
                         }
                     }
-                    Message::SwitchRssi(device_name, rssi) => {
-                        let list_box = clone.imp().main_listbox.get();
-                        let mut listbox_index = 0;
-
-                        // loop over main listbox and get row that matches, updating its rssi
-                        while let Some(row) = list_box.row_at_index(listbox_index) {
-                            let action_row = row.downcast::<DeviceActionRow>().expect("cannot downcast to device action row.");
-
-                            // println!("device {}, with rssi {} changed", device_name.clone(), rssi);
-
-                            if action_row.title() == device_name {
-                                // not sure why those two aren't in the same function
-                                action_row.set_row_rssi(rssi);
-                                action_row.update_rssi_icon();
-                            }
-
-                            listbox_index += 1;
+                    Message::SwitchDeviceRssi(address, rssi) => {
+                        if let Some(bluetooth_device) = clone.find_device_by_address(address) {
+                            bluetooth_device.set_rssi(rssi);
                         }
                     }
-                    Message::AddRow(device) => {
-                        let row = add_child_row(device);
+                    Message::AddDevice(device_snapshot) => {
+                        clone.insert_or_update_device(&device_snapshot);
+                    }
+                    Message::RemoveDevice(address) => {
+                        let removed_device_was_selected = clone.selected_device().is_some_and(|bluetooth_device| bluetooth_device.bluer_address() == address);
+                        let device_store = clone.device_list_models().store.clone();
+                        let removed_device_position = device_store
+                            .iter::<BluetoothDevice>()
+                            .filter_map(Result::ok)
+                            .position(|bluetooth_device| bluetooth_device.bluer_address() == address);
+                        if let Some(removed_device_position) = removed_device_position {
+                            device_store.remove(removed_device_position as u32);
+                        }
 
-                        if let Ok(ok_row) = row {
-                            let hide_unknowns_switch_row = clone.imp().hide_unknowns_switch_row.get();
-                            let is_active = hide_unknowns_switch_row.is_active();
-
-                            if !(ok_row.title() == "Unknown Device" && is_active) {
-                                let main_listbox = clone.imp().main_listbox.get();
-                                main_listbox.append(&ok_row);
-                                main_listbox.invalidate_sort();
-
-                                let reselect_this_row = *clone.imp().pending_device_selection.borrow() == Some(ok_row.get_bluer_address());
-                                if reselect_this_row {
-                                    clone.imp().pending_device_selection.replace(None);
-                                    main_listbox.select_row(Some(&ok_row));
-                                    ok_row.emit_activate();
-                                }
-                            }
+                        if removed_device_was_selected {
+                            clone.imp().bluetooth_settings_row.get().emit_activate();
                         }
                     }
-                    Message::RemoveDevice(name, address) => {
-                        let listbox = clone.clone().imp().main_listbox.get();
-                        let mut index = 0;
-                        let mut selected = true;
-
-                        // loop over main listbox and remove the row that matches
-                        while let Some(row) = listbox.row_at_index(index) {
-                            let action_row = row.downcast::<DeviceActionRow>().expect("cannot downcast to action row.");
-                            let hide_unknowns_switch_row = clone.imp().hide_unknowns_switch_row.get();
-                            let is_active = hide_unknowns_switch_row.is_active();
-
-                            if action_row.title() == "Unknown Device" && is_active {
-                                listbox.remove(&action_row);
-                            }
-
-                            if action_row.title() == name && action_row.get_bluer_address() == address {
-                                action_row.set_connected(false);
-
-                                if let Some(selected_row) = listbox.selected_row() {
-                                    let downcasted = selected_row.downcast::<DeviceActionRow>().expect("cannot downcast to action row.");
-
-                                    selected = downcasted.get_bluer_address() == action_row.get_bluer_address() && downcasted.title() == action_row.title();
-                                }
-
-                                listbox.remove(&action_row);
-                            }
-                            index += 1;
-                        }
-
-                        // if the removed device is the same as the currently selected one, return to the settings page
-                        if selected {
-                            let bluetooth_settings_row = clone.clone().imp().bluetooth_settings_row.get();
-                            bluetooth_settings_row.emit_activate();
-                        }
-
-                        listbox.invalidate_sort();
+                    Message::SwitchDeviceIcon(icon_name) => {
+                        clone.show_device_icon(&icon_name);
                     }
-                    Message::SwitchPage(alias, icon_name) => {
-                        // doesn't actually switch a page just updates values in the same page
-                        let entry_row = clone.imp().device_name_entry.get();
-                        let device_title = clone.imp().device_title.get();
-                        let device_icon = clone.imp().device_icon.get();
-
-                        if let Some(name) = alias {
-                            entry_row.set_text(name.as_str());
-                            device_title.set_text(name.as_str());
-                        }
-
-                        // make all icons symbolic because colors are ew
-                        if let Some(icon) = icon_name {
-                            let final_icon_name = icon.clone() + "-symbolic";
-
-                            device_icon.set_icon_name(Some(final_icon_name.as_str()));
-                            println!("icon name is: {}", icon);
-                        }
+                    Message::SwitchPage(icon_name) => {
+                        clone.show_device_icon(&icon_name);
 
                         let secondary_listbox = clone.imp().secondary_listbox.get();
                         secondary_listbox.unselect_all();
@@ -801,25 +702,11 @@ impl OverskrideWindow {
 
                         toast_overlay.add_toast(toast);
                     }
-                    Message::UpdateListBoxImage() => {
-                        let listbox_image_box = clone.imp().listbox_image_box.get();
-                        let main_listbox = clone.imp().main_listbox.get();
-
-                        let exists = main_listbox.row_at_index(0).is_some();
-
-                        if exists {
-                            listbox_image_box.set_visible(false);
-                            main_listbox.set_visible(true);
-                        } else {
-                            listbox_image_box.set_visible(true);
-                            main_listbox.set_visible(false);
-                        }
-                    }
                     Message::RequestPinCode(request) => {
                         let device: String;
                         let adapter: String;
                         unsafe {
-                            device = DEVICES_LUT.clone().unwrap().get(&request.device).unwrap_or(&"Unknown Device".to_string()).to_string();
+                            device = clone.device_display_name(request.device);
                             adapter = ADAPTERS_LUT.clone().unwrap().get(&request.adapter).unwrap_or(&"Unknown Adapter".to_string()).to_string();
                             OVERSKRIDE_PROPS.lock().unwrap().displaying_dialog = true;
                         }
@@ -871,11 +758,8 @@ impl OverskrideWindow {
                     }
                     Message::DisplayPinCode(request) => {
                         let pin_code = &request.pincode;
-                        let device: String;
-                        unsafe {
-                            device = DEVICES_LUT.clone().unwrap().get(&request.device).unwrap_or(&"Unknown Device".to_string()).to_string();
-                            OVERSKRIDE_PROPS.lock().unwrap().displaying_dialog = true;
-                        }
+                        let device = clone.device_display_name(request.device);
+                        OVERSKRIDE_PROPS.lock().unwrap().displaying_dialog = true;
 
                         let body = "Please enter this pin code on ".to_string() + device.as_str();
                         let popup = adw::MessageDialog::new(Some(&clone), None, Some(body.as_str()));
@@ -895,7 +779,7 @@ impl OverskrideWindow {
                         let device: String;
                         let adapter: String;
                         unsafe {
-                            device = DEVICES_LUT.clone().unwrap().get(&request.device).unwrap_or(&"Unknown Device".to_string()).to_string();
+                            device = clone.device_display_name(request.device);
                             adapter = ADAPTERS_LUT.clone().unwrap().get(&request.adapter).unwrap_or(&"Unknown Adapter".to_string()).to_string();
                             OVERSKRIDE_PROPS.lock().unwrap().displaying_dialog = true;
                         }
@@ -952,11 +836,8 @@ impl OverskrideWindow {
                     }
                     Message::DisplayPassKey(request) => {
                         let pin_code = &request.passkey;
-                        let device: String;
-                        unsafe {
-                            device = DEVICES_LUT.clone().unwrap().get(&request.device).unwrap_or(&"Unknown Device".to_string()).to_string();
-                            OVERSKRIDE_PROPS.lock().unwrap().displaying_dialog = true;
-                        }
+                        let device = clone.device_display_name(request.device);
+                        OVERSKRIDE_PROPS.lock().unwrap().displaying_dialog = true;
 
                         if clone.imp().display_pass_key_dialog.borrow().clone().is_some() {
                             let dialog = clone.imp().display_pass_key_dialog.borrow().clone().unwrap();
@@ -985,7 +866,7 @@ impl OverskrideWindow {
                         let passkey = &request.passkey.to_string();
                         unsafe {
                             OVERSKRIDE_PROPS.lock().unwrap().displaying_dialog = true;
-                            device = DEVICES_LUT.clone().unwrap().get(&request.device).unwrap_or(&"Unknown Device".to_string()).to_string();
+                            device = clone.device_display_name(request.device);
                             let mut holder = String::new();
                             for key in ADAPTERS_LUT.clone().unwrap().keys() {
                                 if let Some(pair) = ADAPTERS_LUT.clone().unwrap().get_key_value(key) {
@@ -1041,7 +922,7 @@ impl OverskrideWindow {
                         let device: String;
                         let adapter: String;
                         unsafe {
-                            device = DEVICES_LUT.clone().unwrap().get(&request.device).unwrap_or(&"Unknown Device".to_string()).to_string();
+                            device = clone.device_display_name(request.device);
                             adapter = ADAPTERS_LUT.clone().unwrap().get(&request.adapter).unwrap_or(&"Unknown Adapter".to_string()).to_string();
                             OVERSKRIDE_PROPS.lock().unwrap().displaying_dialog = true;
                         }
@@ -1080,7 +961,7 @@ impl OverskrideWindow {
                         let adapter: String;
                         unsafe {
                             OVERSKRIDE_PROPS.lock().unwrap().displaying_dialog = true;
-                            device = DEVICES_LUT.clone().unwrap().get(&request.device).unwrap_or(&"Unknown Device".to_string()).to_string();
+                            device = clone.device_display_name(request.device);
                             adapter = ADAPTERS_LUT.clone().unwrap().iter()
                                 .find_map(|(key, val)| if val == &request.adapter { Some(key) } else { None })
                                 .unwrap_or(&"Unknown Adapter".to_string()).to_string();
@@ -1133,11 +1014,7 @@ impl OverskrideWindow {
                             let window_title = clone.imp().window_title.get();
                             window_title.set_title("Settings");
                         } else {
-                            let listbox = clone.imp().main_listbox.get();
-
-                            if let Some(row) = listbox.row_at_index(0) {
-                                listbox.select_row(Some(&row));
-                            }
+                            clone.device_list_models().selection.set_selected(0);
 
                             let window_title = clone.imp().window_title.get();
                             window_title.set_title("Settings");
@@ -1173,10 +1050,6 @@ impl OverskrideWindow {
                             OVERSKRIDE_PROPS.lock().unwrap().displaying_dialog = false;
                             OVERSKRIDE_PROPS.lock().unwrap().confirm_authorization = *pass_key.borrow();
                         });
-                    }
-                    Message::InvalidateSort() => {
-                        let main_listbox = clone.imp().main_listbox.get();
-                        main_listbox.invalidate_sort();
                     }
                     Message::RefreshDevicesList() => {
                         WidgetExt::activate_action(&clone, "win.refresh-devices", None).expect("cannot refresh devices list");
@@ -1298,6 +1171,7 @@ impl OverskrideWindow {
                         println!("hidden devices set to {}", hidden);
 
                         OVERSKRIDE_PROPS.lock().unwrap().hide_unknown_devices = hidden;
+                        clone.device_list_models().filter.changed(gtk::FilterChange::Different);
 
                         clone.imp().settings.get().expect("cannot get settings for file save location").set_boolean("hide-unknown-devices", hidden).expect("cannot set hide unknown devices");
                     }
@@ -1308,14 +1182,16 @@ impl OverskrideWindow {
                         clone.update_connection_properties_visibility();
                     }
                     Message::SetNameValid(state) => {
-                        // if the name is invalid this should be reported back to user through colors on the entry
                         let device_name_entry = clone.imp().device_name_entry.get();
 
                         if state {
-                            device_name_entry.set_css_classes(&[""]);
+                            device_name_entry.remove_css_class("error");
                         } else {
-                            device_name_entry.set_css_classes(&["error"]);
+                            device_name_entry.add_css_class("error");
                         }
+                    }
+                    Message::SwitchDeviceRenamePending(pending) => {
+                        clone.set_device_rename_pending(pending);
                     }
                     Message::PopulateAudioProfilesList(hashmap) => {
                         let audio_profile_expander = clone.imp().audio_profile_expander.get();
@@ -1461,57 +1337,7 @@ impl OverskrideWindow {
             }
         });
 
-        let main_listbox = self.imp().main_listbox.get();
-
-        // smaller => one before two
-        // larger => two before one
-        // equal => they're equal
-        // how this works is beyond me (yes, I wrote it)
-        main_listbox.set_sort_func(|row_one, row_two| {
-            let actionrow_one = row_one.clone().downcast::<DeviceActionRow>().unwrap();
-            let actionrow_two = row_two.clone().downcast::<DeviceActionRow>().unwrap();
-
-            let title_one = actionrow_one.title().to_lowercase();
-            let title_two = actionrow_two.title().to_lowercase();
-
-            match (title_one.as_str(), title_two.as_str()) {
-                ("unknown device", _) if title_two != "unknown device" => {
-                    return gtk::Ordering::Larger
-                }
-                (_, "unknown device") if title_one != "unknown device" => {
-                    return gtk::Ordering::Smaller
-                }
-                ("unknown device", "unknown device") => (),
-                _ => (),
-            }
-
-            match (actionrow_one.connected(), actionrow_two.connected()) {
-                (true, false) => return gtk::Ordering::Smaller,
-                (false, true) => return gtk::Ordering::Larger,
-                _ => (),
-            }
-
-            match (actionrow_one.trusted(), actionrow_two.trusted()) {
-                (true, false) => return gtk::Ordering::Smaller,
-                (false, true) => return gtk::Ordering::Larger,
-                _ => (),
-            }
-
-            match actionrow_one.rssi().cmp(&actionrow_two.rssi()) {
-                std::cmp::Ordering::Less => return gtk::Ordering::Smaller,
-                std::cmp::Ordering::Greater => return gtk::Ordering::Larger,
-                _ => (),
-            }
-
-            match title_one.cmp(&title_two) {
-                std::cmp::Ordering::Less => return gtk::Ordering::Smaller,
-                std::cmp::Ordering::Greater => return gtk::Ordering::Larger,
-                _ => (),
-            }
-
-            return gtk::Ordering::Equal;
-        });
-        main_listbox.invalidate_sort();
+        self.setup_device_list(sender.clone());
 
         // refresh devices action, possibly most important action here
         // refreshes the main list, checks if we can send a "refreshed list" message to the user
@@ -1537,9 +1363,6 @@ impl OverskrideWindow {
 
                     sender
                         .send(Message::PopupError(string, adw::ToastPriority::High))
-                        .await.expect("cannot send message");
-                    sender
-                        .send(Message::UpdateListBoxImage())
                         .await.expect("cannot send message");
                 }
                 println!("can send: {}", can_send);
@@ -1665,25 +1488,20 @@ impl OverskrideWindow {
 
         
 
-        // change the currently selected devices name
         let device_name_entry = self.imp().device_name_entry.get();
-        let sender4 = sender.clone();
-        device_name_entry.connect_apply(move |entry| {
-            let sender_clone = sender4.clone();
-            let name = entry.text().to_string().trim().to_string();
-            let address = OVERSKRIDE_PROPS.lock().unwrap().address;
-            let adapter_name = OVERSKRIDE_PROPS.lock().unwrap().current_adapter.clone();
-
-            runtime().spawn(async move {
-                if let Err(err) =
-                    device::set_device_name(address, name, sender_clone.clone(), adapter_name).await
-                {
-                    let string = err.message;
-                    sender_clone
-                        .send(Message::PopupError(string, adw::ToastPriority::High))
-                        .await.expect("cannot send message");
-                }
-            });
+        let window_for_apply = self.downgrade();
+        let sender_for_apply = sender.clone();
+        device_name_entry.connect_apply(move |_| {
+            if let Some(window) = window_for_apply.upgrade() {
+                window.request_device_rename(sender_for_apply.clone());
+            }
+        });
+        let window_for_enter = self.downgrade();
+        let sender_for_enter = sender.clone();
+        device_name_entry.connect_entry_activated(move |_| {
+            if let Some(window) = window_for_enter.upgrade() {
+                window.request_device_rename(sender_for_enter.clone());
+            }
         });
 
         // turn adapter on or off
@@ -1819,9 +1637,7 @@ impl OverskrideWindow {
                 }
             });
 
-            // unselect any selected devices
-            let main_listbox = self_clone3.imp().main_listbox.get();
-            main_listbox.unselect_all();
+            self_clone3.device_list_models().selection.unselect_all();
 
             // select the bluetooth settings page on startup
             let main_stack = self_clone3.imp().main_stack.get();
@@ -1858,8 +1674,7 @@ impl OverskrideWindow {
         let sender10 = sender.clone();
         let self_clone5 = self.clone();
         choose_file_button.connect_clicked(move |_| {
-            let main_listbox = self_clone5.imp().main_listbox.get();
-            let selected_row = main_listbox.selected_row();
+            let selected_device = self_clone5.selected_device();
             let connected = self_clone5.imp().connected_switch_row.get().active();
             let another_clone = sender10.clone();
 
@@ -1875,10 +1690,9 @@ impl OverskrideWindow {
                 }
 
                 // get the currently selected device from the main listbox, and its adapter, then send the file from the picked out list of files
-                if let Some(row) = selected_row {
-                    let action_row = row.downcast::<DeviceActionRow>().unwrap();
-                    let source = action_row.get_bluer_adapter_address();
-                    let destination = action_row.get_bluer_address();
+                if let Some(bluetooth_device) = selected_device {
+                    let source = bluetooth_device.bluer_adapter_address();
+                    let destination = bluetooth_device.bluer_address();
 
                     let sender_clone = another_clone.clone();
                     std::thread::spawn(move || {
@@ -1962,6 +1776,187 @@ impl OverskrideWindow {
         hide_unknowns_switch_row.set_active(OVERSKRIDE_PROPS.lock().unwrap().hide_unknown_devices);
     }
 
+    fn setup_device_list(&self, sender: Sender<Message>) {
+        let device_store = gio::ListStore::new::<BluetoothDevice>();
+        let device_filter = gtk::CustomFilter::new(|object| {
+            let hide_unknown_devices = OVERSKRIDE_PROPS.lock().unwrap().hide_unknown_devices;
+            !hide_unknown_devices || object.downcast_ref::<BluetoothDevice>().is_some_and(|bluetooth_device| !bluetooth_device.is_unknown())
+        });
+        let device_sorter = gtk::CustomSorter::new(compare_bluetooth_devices);
+        let filtered_devices = gtk::FilterListModel::new(Some(device_store.clone()), Some(device_filter.clone()));
+        let sorted_devices = gtk::SortListModel::new(Some(filtered_devices), Some(device_sorter.clone()));
+        let device_selection = gtk::SingleSelection::builder()
+            .model(&sorted_devices)
+            .autoselect(false)
+            .can_unselect(true)
+            .build();
+
+        let window_for_selection = self.downgrade();
+        device_selection.connect_selected_item_notify(move |selection| {
+            let Some(window) = window_for_selection.upgrade() else {
+                return;
+            };
+            let newly_selected_device = selection.selected_item().and_downcast::<BluetoothDevice>();
+            if window.selected_device() == newly_selected_device {
+                return;
+            }
+            window.set_selected_device(newly_selected_device.as_ref());
+            if let Some(bluetooth_device) = newly_selected_device {
+                window.open_selected_device(&bluetooth_device, sender.clone());
+            }
+        });
+
+        let window_for_placeholder = self.downgrade();
+        device_selection.connect_items_changed(move |selection, _, _, _| {
+            if let Some(window) = window_for_placeholder.upgrade() {
+                window.update_device_list_placeholder(selection.n_items());
+            }
+        });
+
+        self.imp().device_list_view.get().set_model(Some(&device_selection));
+        self.update_device_list_placeholder(device_selection.n_items());
+        self.imp()
+            .device_list_models
+            .set(imp::DeviceListModels {
+                store: device_store,
+                filter: device_filter,
+                sorter: device_sorter,
+                selection: device_selection,
+            })
+            .expect("device list is set up once");
+    }
+
+    fn device_list_models(&self) -> &imp::DeviceListModels {
+        self.imp().device_list_models.get().expect("device list is set up during window setup")
+    }
+
+    fn update_device_list_placeholder(&self, visible_device_count: u32) {
+        let has_visible_devices = visible_device_count > 0;
+        self.imp().listbox_image_box.get().set_visible(!has_visible_devices);
+        self.imp().device_list_view.get().set_visible(has_visible_devices);
+    }
+
+    fn find_device_by_address(&self, address: bluer::Address) -> Option<BluetoothDevice> {
+        self.device_list_models()
+            .store
+            .iter::<BluetoothDevice>()
+            .filter_map(Result::ok)
+            .find(|bluetooth_device| bluetooth_device.bluer_address() == address)
+    }
+
+    fn device_display_name(&self, address: bluer::Address) -> String {
+        self.find_device_by_address(address)
+            .map(|bluetooth_device| bluetooth_device.display_name())
+            .unwrap_or_else(|| UNKNOWN_DEVICE_NAME.to_string())
+    }
+
+    fn insert_or_update_device(&self, device_snapshot: &DeviceSnapshot) {
+        match self.find_device_by_address(device_snapshot.address) {
+            Some(existing_device) => existing_device.apply_snapshot(device_snapshot),
+            None => {
+                let device_list_models = self.device_list_models();
+                let bluetooth_device = BluetoothDevice::from_snapshot(device_snapshot);
+                let device_filter = device_list_models.filter.clone();
+                let device_sorter = device_list_models.sorter.clone();
+                bluetooth_device.connect_notify_local(None, move |_, changed_property| match changed_property.name() {
+                    "alias" => {
+                        device_filter.changed(gtk::FilterChange::Different);
+                        device_sorter.changed(gtk::SorterChange::Different);
+                    }
+                    "rssi" | "connected" | "trusted" => device_sorter.changed(gtk::SorterChange::Different),
+                    _ => {}
+                });
+                device_list_models.store.append(&bluetooth_device);
+            }
+        }
+
+        let reselect_this_device = *self.imp().pending_device_selection.borrow() == Some(device_snapshot.address);
+        if reselect_this_device {
+            self.imp().pending_device_selection.replace(None);
+            self.select_device_by_address(device_snapshot.address);
+        }
+    }
+
+    fn select_device_by_address(&self, address: bluer::Address) {
+        let device_selection = &self.device_list_models().selection;
+        let device_position = device_selection
+            .iter::<BluetoothDevice>()
+            .filter_map(Result::ok)
+            .position(|bluetooth_device| bluetooth_device.bluer_address() == address);
+        if let Some(device_position) = device_position {
+            device_selection.set_selected(device_position as u32);
+        }
+    }
+
+    fn open_selected_device(&self, bluetooth_device: &BluetoothDevice, sender: Sender<Message>) {
+        let address = bluetooth_device.bluer_address();
+        let adapter_name = bluetooth_device.adapter_name();
+        OVERSKRIDE_PROPS.lock().unwrap().address = address;
+
+        runtime().spawn(async move {
+            if let Err(err) = device::get_device_properties(address, sender.clone(), adapter_name).await {
+                sender
+                    .send(Message::GoToBluetoothSettings(true))
+                    .await.expect("cannot send message");
+                sender
+                    .send(Message::PopupError(err.message, adw::ToastPriority::High))
+                    .await.expect("cannot send message");
+            }
+        });
+    }
+
+    fn show_device_icon(&self, icon_name: &str) {
+        let symbolic_icon_name = format!("{}-symbolic", icon_name);
+        self.imp().device_icon.get().set_icon_name(Some(symbolic_icon_name.as_str()));
+    }
+
+    fn request_device_rename(&self, sender: Sender<Message>) {
+        let Some(bluetooth_device) = self.selected_device() else {
+            return;
+        };
+        if self.device_rename_pending() {
+            return;
+        }
+
+        let device_name_entry = self.imp().device_name_entry.get();
+        let requested_name = device_name_entry.text().trim().to_string();
+        if requested_name == bluetooth_device.alias() {
+            device_name_entry.remove_css_class("error");
+            return;
+        }
+
+        let name_taken_by_other_device = self
+            .device_list_models()
+            .store
+            .iter::<BluetoothDevice>()
+            .filter_map(Result::ok)
+            .any(|other_device| other_device.bluer_address() != bluetooth_device.bluer_address() && other_device.alias().trim() == requested_name);
+        if name_taken_by_other_device {
+            device_name_entry.add_css_class("error");
+            sender
+                .try_send(Message::PopupError("device-name-exists".to_string(), adw::ToastPriority::High))
+                .expect("cannot send message");
+            return;
+        }
+
+        self.set_device_rename_pending(true);
+        let address = bluetooth_device.bluer_address();
+        let adapter_name = bluetooth_device.adapter_name();
+        runtime().spawn(async move {
+            if let Err(rename_error) = device::set_device_name(address, requested_name, sender.clone(), adapter_name).await {
+                sender
+                    .send(Message::SetNameValid(false))
+                    .await.expect("cannot send message");
+                sender
+                    .send(Message::PopupError(rename_error.message, adw::ToastPriority::High))
+                    .await.expect("cannot send message");
+            }
+            sender
+                .send(Message::SwitchDeviceRenamePending(false))
+                .await.expect("cannot send message");
+        });
+    }
+
     /// on app exit, save the current settings
         fn show_pending_service_authorization_if_open(&self, address: bluer::Address) {
         let pending_request = self.imp().pending_service_authorization.borrow().clone();
@@ -1982,18 +1977,7 @@ impl OverskrideWindow {
             return;
         }
 
-        let main_listbox = self.imp().main_listbox.get();
-        let mut listbox_index = 0;
-        while let Some(device_row) = main_listbox.row_at_index(listbox_index) {
-            if let Ok(action_row) = device_row.clone().downcast::<DeviceActionRow>() {
-                if action_row.get_bluer_address() == address {
-                    main_listbox.select_row(Some(&action_row));
-                    action_row.emit_activate();
-                    return;
-                }
-            }
-            listbox_index += 1;
-        }
+        self.select_device_by_address(address);
     }
 
     fn update_connection_properties_visibility(&self) {
@@ -2009,13 +1993,7 @@ impl OverskrideWindow {
             }
         }
 
-        let main_listbox = self.imp().main_listbox.get();
-        while let Some(device_row) = main_listbox.row_at_index(0) {
-            main_listbox.remove(&device_row);
-        }
-        unsafe {
-            DEVICES_LUT = Some(HashMap::new());
-        }
+        self.device_list_models().store.remove_all();
 
         if device_to_reselect.is_none() {
             self.imp().bluetooth_settings_row.get().emit_activate();
@@ -2116,7 +2094,6 @@ impl OverskrideWindow {
         unsafe {
             // makes a new sender, devices lut, rssi lut, and updates the current adapter name in gsettings
             OVERSKRIDE_PROPS.lock().unwrap().sender = Some(sender.clone());
-            DEVICES_LUT = Some(HashMap::new());
             RSSI_LUT = Some(HashMap::new());
             let name = settings.string("current-adapter-name").to_string();
             let session = bluer::Session::new().await?;
@@ -2191,105 +2168,20 @@ fn spawn_device_activation(sender: Sender<Message>) {
     });
 }
 
-/// Creates a new [DeviceActionRow](DeviceActionRow) from a device, includes all needed info in the row
-#[tokio::main]
-async fn add_child_row(device: bluer::Device) -> bluer::Result<DeviceActionRow> {
-    let child_row = DeviceActionRow::new();
-    // println!("added device name is {:?}", device.name().await?);
+fn compare_bluetooth_devices(first_object: &glib::Object, second_object: &glib::Object) -> gtk::Ordering {
+    let first_device = first_object.downcast_ref::<BluetoothDevice>().expect("device list holds bluetooth devices");
+    let second_device = second_object.downcast_ref::<BluetoothDevice>().expect("device list holds bluetooth devices");
 
-    let mut name = device.alias().await?;
-    let address = device.address();
-    let rssi = match device.rssi().await? {
-        None => 0,
-        Some(n) => n as i32,
-    };
-    let active = device.is_connected().await?;
-    child_row.set_connected(active);
-
-    let stages = read_pairing_stages(&device).await?;
-    child_row.set_pairing_progress(&stages);
-
-    // set the address of this device
-    child_row.set_bluer_address(address);
-
-    // check for LE devices or other stuff that doesn't have a name, instead an address like "XX-XX-XX-XX-XX-XX"
-    // then replace with "Unknown Device" because its cleaner
-    if let Ok(bad_title) = bluer::Address::from_str(name.clone().replace('-', ":").as_str()) {
-        name = "Unknown Device".to_string();
-        child_row.set_title("Unknown Device");
-
-        // child_row.set_subtitle(bad_title.to_string().as_str());
-        println!("broken device title is {:?}", bad_title);
-    } else {
-        child_row.set_title(name.clone().as_str());
-    }
-
-    let props = OVERSKRIDE_PROPS.lock().unwrap();
-    child_row.set_activatable(true);
-    // sets the adapter that this device was connected to with
-    child_row.set_row_adapter_name(props.current_adapter.clone());
-
-    // sets the adapter address for ease of access
-    if let Ok(adapter) = bluer::Session::new()
-        .await?
-        .adapter(&props.current_adapter.clone())
-    {
-        let address = adapter.address().await?;
-        child_row.set_bluer_adapter_address(address);
-    };
-
-    // change the RSSI icon of the device
-    child_row.set_row_rssi(rssi);
-
-    // update the device lookup table with the new info
-    unsafe {
-        let mut devices_lut = DEVICES_LUT.clone().unwrap();
-        devices_lut.insert(address, name.clone());
-        //println!("lut (add) is: {:?}", devices_lut);
-        DEVICES_LUT = Some(devices_lut);
-        //println!("big lut (add) is: {:?}", DEVICES_LUT.clone());
-    }
-
-    let sender = props.sender.clone().unwrap();
-    sender
-        .send(Message::InvalidateSort())
-        .await.expect("cannot send message");
-    sender
-        .send(Message::SwitchRssi(name.clone(), rssi))
-        .await.expect("cannot send message");
-
-    // on click
-    child_row.connect_activated(move |row| {
-        OVERSKRIDE_PROPS.lock().unwrap().current_index = row.index();
-        OVERSKRIDE_PROPS.lock().unwrap().address = row.get_bluer_address();
-
-        let address = row.get_bluer_address();
-        let adapter_name = row.adapter_name();
-        let sender_clone = sender.clone();
-
-        // println!("row address {} with adapter {}", address.clone(), adapter_name.clone());
-
-        // try to retrieve device properties and update UI
-        runtime().spawn(async move {
-            let sender_clone_clone = sender_clone.clone(); // lmao i love rust
-
-            if let Err(err) =
-                device::get_device_properties(address, sender_clone_clone.clone(), adapter_name).await
-            {
-                let string = err.message;
-
-                sender_clone_clone
-                    .send(Message::GoToBluetoothSettings(true))
-                    .await.expect("cannot send message");
-                sender_clone_clone
-                    .send(Message::PopupError(string, adw::ToastPriority::High))
-                    .await.expect("cannot send message");
-            }
-        });
-    });
-
-    Ok(child_row)
+    first_device
+        .is_unknown()
+        .cmp(&second_device.is_unknown())
+        .then_with(|| second_device.connected().cmp(&first_device.connected()))
+        .then_with(|| second_device.trusted().cmp(&first_device.trusted()))
+        .then_with(|| first_device.rssi().cmp(&second_device.rssi()))
+        .then_with(|| first_device.display_name().to_lowercase().cmp(&second_device.display_name().to_lowercase()))
+        .into()
 }
+
 // TODO
 // - use fxhashmap for even faster lookups
 // - add option to auto trust device on pair (include warning about how dangerous it is)

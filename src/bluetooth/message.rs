@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::bluetooth_device::DeviceSnapshot;
 use crate::pairing_stages::PairingStages;
 use crate::radios::RadioDescription;
 
@@ -13,16 +14,12 @@ pub enum Message {
     SwitchActive(bool, bluer::Address, bool),
     /// Changes the connected switch's spinner spinning state to `bool`
     SwitchActiveSpinner(bool),
-    /// Changes the active device's name to [alias](String) if no [old_alias](Option<String>) is provided, otherwise it looks for a matching row
-    SwitchName(String, Option<String>, bluer::Address),
-    /// Changes the supplied device's (`name: String`) RSSI to the supplied value (`rssi: i32`)
-    SwitchRssi(String, i32),
-    /// Moves between pages, ie changes the values of the rows and icons to `page: Option<String>` and `icon: Option<String>`
-    SwitchPage(Option<String>, Option<String>),
-    /// Removes the device matching the supplied name (`name: String`)
-    RemoveDevice(String, bluer::Address),
-    /// Adds a new device from the properties of [device](bluer::Device)
-    AddRow(bluer::Device),
+    SwitchDeviceAlias(bluer::Address, String),
+    SwitchDeviceRssi(bluer::Address, i32),
+    SwitchPage(String),
+    SwitchDeviceIcon(String),
+    RemoveDevice(bluer::Address),
+    AddDevice(DeviceSnapshot),
     /// Changes the adapter's powered state to `bool`
     SwitchAdapterPowered(bool),
     /// Changes the adapter's discoverable timeout to [timeout](u32)
@@ -35,8 +32,6 @@ pub enum Message {
     PopulateAdapterExpander(HashMap<String, String>),
     /// Displays an error (or a message) of [message](String) with a [priority](adw::ToastPriority) as a [toast](adw::Toast)
     PopupError(String, adw::ToastPriority),
-    /// Checks if there are devices and changes the "no bluetooth devices found" image accordingly
-    UpdateListBoxImage(),
     /// Requests a pairing pincode using [request](bluer::agent::RequestPinCode) as input
     RequestPinCode(bluer::agent::RequestPinCode),
     /// Displays a pairing pincode using [request](bluer::agent::DisplayPinCode) as input
@@ -60,8 +55,6 @@ pub enum Message {
     /// * `confirm name` - a [String](String) for the name of the confirmation option
     /// * `response type` - a [Response Type](adw::ResponseAppearance) detailing if the response is destructive, suggested, etc
     RequestYesNo(String, String, String, adw::ResponseAppearance),
-    /// Invalidates the device list's sorting, forcing it to resort the devices according to various factors
-    InvalidateSort(),
     /// Forcefully refreshes the device list (needs more work)
     RefreshDevicesList(),
     /// Starts a new transfer, displaying a progress bar popover with the filename
@@ -92,6 +85,7 @@ pub enum Message {
 	SwitchHasObexService(bool),
 	/// Sets the "valid" state of the device name
 	SetNameValid(bool),
+    SwitchDeviceRenamePending(bool),
     /// Adds the given profiles to the profiles list selector for a device
     PopulateAudioProfilesList(HashMap<String, String>),
     /// Toggles the audio profiles list according to the given `bool`

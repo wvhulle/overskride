@@ -4,7 +4,6 @@
     <file preprocess="xml-stripblanks">gtk/window.ui</file>
     <file preprocess="xml-stripblanks">gtk/help-overlay.ui</file>
     <file preprocess="xml-stripblanks">gtk/connected-switch-row.ui</file>
-    <file preprocess="xml-stripblanks">gtk/device-action-row.ui</file>
     <file preprocess="xml-stripblanks">gtk/receiving-popover.ui</file>
     <file preprocess="xml-stripblanks">gtk/receiving-row.ui</file>
     <file preprocess="xml-stripblanks">gtk/startup-error-message.ui</file>
