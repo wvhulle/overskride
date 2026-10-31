@@ -18,10 +18,8 @@ use crate::{
     },
 };
 
-const CONFIRM_CHOICES: [AlertChoice; 2] =
-    [CANCEL_CHOICE, suggested_choice("confirm", "Confirm")];
-const ALLOW_CHOICES: [AlertChoice; 2] =
-    [CANCEL_CHOICE, suggested_choice("allow", "Allow")];
+const CONFIRM_CHOICES: [AlertChoice; 2] = [CANCEL_CHOICE, suggested_choice("confirm", "Confirm")];
+const ALLOW_CHOICES: [AlertChoice; 2] = [CANCEL_CHOICE, suggested_choice("allow", "Allow")];
 const INFORMATION_CHOICES: [AlertChoice; 1] = [suggested_choice("ok", "OK")];
 const SERVICE_CHOICES: [AlertChoice; 3] = [
     plain_choice("deny", "Deny"),
