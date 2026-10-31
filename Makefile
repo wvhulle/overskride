@@ -8,9 +8,11 @@ INSTALL_ROOT := $(DESTDIR)$(PREFIX)
 SHARE_DIRECTORY := $(INSTALL_ROOT)/share
 SCHEMA_DIRECTORY := $(SHARE_DIRECTORY)/glib-2.0/schemas
 ICON_DIRECTORY := $(SHARE_DIRECTORY)/icons/hicolor
+SYSTEMD_USER_DIRECTORY := $(INSTALL_ROOT)/lib/systemd/user
+BINARY_DIRECTORY ?= $(PREFIX)/bin
 CHECK_ROOT := $(CURDIR)/target/check-install
 
-.PHONY: build install install-binary install-data install-desktop-entry install-metainfo install-schema install-icons uninstall check
+.PHONY: build install install-binary install-data install-desktop-entry install-metainfo install-schema install-icons install-systemd-unit uninstall check
 
 build:
 	$(CARGO) build --release --locked --package overskride-ui
@@ -20,7 +22,7 @@ install: install-binary install-data
 install-binary:
 	install -Dm755 $(RELEASE_BINARY) $(INSTALL_ROOT)/bin/overskride
 
-install-data: install-desktop-entry install-metainfo install-schema install-icons
+install-data: install-desktop-entry install-metainfo install-schema install-icons install-systemd-unit
 ifeq ($(DESTDIR),)
 	glib-compile-schemas $(SCHEMA_DIRECTORY)
 	-gtk-update-icon-cache -qtf $(ICON_DIRECTORY)
@@ -39,6 +41,11 @@ install-icons:
 	install -Dm644 data/icons/hicolor/scalable/apps/$(APPLICATION_ID).svg $(ICON_DIRECTORY)/scalable/apps/$(APPLICATION_ID).svg
 	install -Dm644 data/icons/hicolor/symbolic/apps/$(APPLICATION_ID)-symbolic.svg $(ICON_DIRECTORY)/symbolic/apps/$(APPLICATION_ID)-symbolic.svg
 
+install-systemd-unit:
+	install -d $(SYSTEMD_USER_DIRECTORY)
+	sed 's|@bindir@|$(BINARY_DIRECTORY)|' data/overskride.service.in > $(SYSTEMD_USER_DIRECTORY)/overskride.service
+	chmod 644 $(SYSTEMD_USER_DIRECTORY)/overskride.service
+
 uninstall:
 	rm -f $(INSTALL_ROOT)/bin/overskride
 	rm -f $(SHARE_DIRECTORY)/applications/$(APPLICATION_ID).desktop
@@ -46,6 +53,7 @@ uninstall:
 	rm -f $(SCHEMA_DIRECTORY)/$(APPLICATION_ID).gschema.xml
 	rm -f $(ICON_DIRECTORY)/scalable/apps/$(APPLICATION_ID).svg
 	rm -f $(ICON_DIRECTORY)/symbolic/apps/$(APPLICATION_ID)-symbolic.svg
+	rm -f $(SYSTEMD_USER_DIRECTORY)/overskride.service
 
 check:
 	$(CARGO) test --workspace --locked

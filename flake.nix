@@ -108,7 +108,7 @@
             installPhase = ''
               runHook preInstall
               install -Dm755 ${overskrideBinary}/bin/overskride $out/bin/overskride
-              make install-metainfo install-schema install-icons DESTDIR=$out PREFIX=
+              make install-metainfo install-schema install-icons install-systemd-unit DESTDIR=$out PREFIX= BINARY_DIRECTORY=$out/bin
               glib-compile-schemas --strict $out/share/glib-2.0/schemas
               runHook postInstall
             '';
@@ -157,6 +157,10 @@
         overskride = self.packages.${final.stdenv.hostPlatform.system}.default;
       };
 
+      homeManagerModules.default = import ./nix/home-manager-module.nix self;
+
+      nixosModules.default = import ./nix/nixos-module.nix self;
+
       packages = forEachSystem (
         systemContext:
         let
@@ -169,11 +173,25 @@
       );
 
       checks = forEachSystem (
-        { craneLib, ... }@systemContext:
+        { craneLib, pkgs }@systemContext:
         let
           builtOverskride = overskrideBuild systemContext;
+          backgroundServiceSystem = nixpkgs.lib.nixosSystem {
+            inherit (pkgs.stdenv.hostPlatform) system;
+            modules = [
+              self.nixosModules.default
+              {
+                services.overskride.enable = true;
+                boot.loader.grub.enable = false;
+                fileSystems."/".device = "nodev";
+                system.stateVersion = "25.11";
+              }
+            ];
+          };
         in
         {
+          nixos-background-service =
+            backgroundServiceSystem.config.systemd.user.units."overskride.service".unit;
           tests = craneLib.cargoTest (
             builtOverskride.commonArgs // { inherit (builtOverskride) cargoArtifacts; }
           );

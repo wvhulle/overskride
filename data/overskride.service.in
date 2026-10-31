@@ -1,0 +1,14 @@
+[Unit]
+Description=Overskride Bluetooth pairing agent and file receiver
+Documentation=https://github.com/kaii-lb/overskride
+PartOf=graphical-session.target
+After=graphical-session.target bluetooth.target
+Requisite=graphical-session.target
+
+[Service]
+ExecStart=@bindir@/overskride --background
+Environment=OVERSKRIDE_SYSTEMD_SERVICE=1
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

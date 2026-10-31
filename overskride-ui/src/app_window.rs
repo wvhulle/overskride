@@ -9,9 +9,13 @@ use relm4::component::{AsyncComponent, AsyncComponentParts, AsyncComponentSender
 use relm4::gtk;
 use relm4::prelude::*;
 
-use crate::app_preferences::AppPreferences;
+use ksni::TrayMethods;
+
+use crate::app_preferences::{AppPreferences, RUN_IN_BACKGROUND_KEY, START_AT_LOGIN_KEY};
 use crate::device_page::ObexAvailability;
-use crate::main_view::{MainView, MainViewInit};
+use crate::login_autostart::{LoginAutostartError, apply_login_autostart, managed_by_systemd};
+use crate::main_view::{MainView, MainViewInit, MainViewInput, MainViewOutput};
+use crate::tray_icon::{OverskrideTray, TrayContent, TrayControl, TrayRequest};
 
 const NARROW_WINDOW_CONDITION: &str = "max-width: 700sp";
 const BLUETOOTH_SERVICE_HELP: &str = "Start the Bluetooth service and open Overskride again:\n\nsudo systemctl enable --now bluetooth\n\nIf the service does not exist, install the bluez package for your distribution first.";
@@ -27,8 +31,86 @@ pub enum WindowContent {
     Unavailable,
 }
 
+enum TrayPresence {
+    Absent,
+    Starting,
+    Shown(ksni::Handle<OverskrideTray>),
+}
+
 pub struct AppWindow {
     _content: WindowContent,
+    tray_presence: TrayPresence,
+    tray_control: TrayControl,
+    tray_content: TrayContent,
+}
+
+#[derive(Debug)]
+pub enum AppWindowInput {
+    MainView(MainViewOutput),
+    RunInBackgroundChanged(bool),
+    StartAtLoginChanged(bool),
+}
+
+pub enum AppWindowCommand {
+    TrayStarted(Result<ksni::Handle<OverskrideTray>, ksni::Error>),
+    LoginAutostartApplied(Result<(), LoginAutostartError>),
+}
+
+impl std::fmt::Debug for AppWindowCommand {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TrayStarted(tray_outcome) => {
+                write!(formatter, "TrayStarted({})", tray_outcome.is_ok())
+            }
+            Self::LoginAutostartApplied(autostart_outcome) => {
+                write!(formatter, "LoginAutostartApplied({autostart_outcome:?})")
+            }
+        }
+    }
+}
+
+fn keeps_running_in_background(preferences: &AppPreferences) -> bool {
+    managed_by_systemd() || preferences.run_in_background()
+}
+
+impl AppWindow {
+    fn show_tray(&mut self, sender: &AsyncComponentSender<Self>) {
+        if !matches!(self.tray_presence, TrayPresence::Absent) {
+            return;
+        }
+        self.tray_presence = TrayPresence::Starting;
+        let tray = OverskrideTray {
+            control: self.tray_control.clone(),
+            content: self.tray_content.clone(),
+        };
+        sender.oneshot_command(async { AppWindowCommand::TrayStarted(tray.spawn().await) });
+    }
+
+    fn show_tray_content(&mut self, tray_content: TrayContent) {
+        self.tray_content = tray_content.clone();
+        if let TrayPresence::Shown(tray_handle) = &self.tray_presence {
+            let tray_handle = tray_handle.clone();
+            relm4::spawn(async move {
+                tray_handle
+                    .update(move |tray| tray.content = tray_content)
+                    .await;
+            });
+        }
+    }
+
+    fn hide_tray(&mut self) {
+        if let TrayPresence::Shown(tray_handle) =
+            std::mem::replace(&mut self.tray_presence, TrayPresence::Absent)
+        {
+            let _shutdown_runs_without_waiting = tray_handle.shutdown();
+        }
+    }
+
+    fn apply_login_autostart(sender: &AsyncComponentSender<Self>, start_at_login: bool) {
+        sender.oneshot_command(async move {
+            AppWindowCommand::LoginAutostartApplied(apply_login_autostart(start_at_login).await)
+        });
+    }
 }
 
 async fn connect_bluetooth(preferences: &AppPreferences) -> Result<ReadyBluetooth, BluetoothError> {
@@ -79,9 +161,9 @@ fn collapse_when_narrow(window: &adw::ApplicationWindow, main_view: &Controller<
 
 impl AsyncComponent for AppWindow {
     type Init = AppPreferences;
-    type Input = ();
+    type Input = AppWindowInput;
     type Output = ();
-    type CommandOutput = ();
+    type CommandOutput = AppWindowCommand;
     type Root = adw::ApplicationWindow;
     type Widgets = ();
 
@@ -99,7 +181,7 @@ impl AsyncComponent for AppWindow {
     async fn init(
         preferences: Self::Init,
         root: Self::Root,
-        _sender: AsyncComponentSender<Self>,
+        sender: AsyncComponentSender<Self>,
     ) -> AsyncComponentParts<Self> {
         let settings = preferences.settings();
         settings
@@ -111,8 +193,36 @@ impl AsyncComponent for AppWindow {
         settings
             .bind("window-maximized", &root, "maximized")
             .build();
+        if managed_by_systemd() {
+            root.set_hide_on_close(true);
+        } else {
+            settings
+                .bind(RUN_IN_BACKGROUND_KEY, &root, "hide-on-close")
+                .get()
+                .build();
+        }
+        let run_in_background_sender = sender.input_sender().clone();
+        settings.connect_changed(
+            Some(RUN_IN_BACKGROUND_KEY),
+            move |changed_settings, setting_key| {
+                run_in_background_sender.emit(AppWindowInput::RunInBackgroundChanged(
+                    changed_settings.boolean(setting_key),
+                ));
+            },
+        );
+        let start_at_login_sender = sender.input_sender().clone();
+        settings.connect_changed(
+            Some(START_AT_LOGIN_KEY),
+            move |changed_settings, setting_key| {
+                start_at_login_sender.emit(AppWindowInput::StartAtLoginChanged(
+                    changed_settings.boolean(setting_key),
+                ));
+            },
+        );
+        let background_wanted = keeps_running_in_background(&preferences);
+        Self::apply_login_autostart(&sender, background_wanted && preferences.start_at_login());
 
-        let content = match connect_bluetooth(&preferences).await {
+        let (content, tray_control) = match connect_bluetooth(&preferences).await {
             Ok(ready_bluetooth) => {
                 let obex = match ObexConnection::open() {
                     Ok(obex_connection) => ObexAvailability::Available(obex_connection),
@@ -126,21 +236,91 @@ impl AsyncComponent for AppWindow {
                         radios: ready_bluetooth.radios,
                         adapter: ready_bluetooth.adapter,
                     })
-                    .detach();
+                    .forward(sender.input_sender(), AppWindowInput::MainView);
                 root.set_content(Some(main_view.widget()));
                 collapse_when_narrow(&root, &main_view);
-                WindowContent::Ready {
-                    _main_view: main_view,
-                }
+                let (tray_request_sender, tray_request_receiver) = relm4::channel::<TrayRequest>();
+                relm4::spawn_local(
+                    tray_request_receiver.forward(main_view.sender().clone(), MainViewInput::Tray),
+                );
+                (
+                    WindowContent::Ready {
+                        _main_view: main_view,
+                    },
+                    TrayControl::Bluetooth(tray_request_sender),
+                )
             }
             Err(bluetooth_error) => {
                 root.set_content(Some(&unavailable_page(bluetooth_error)));
-                WindowContent::Unavailable
+                (WindowContent::Unavailable, TrayControl::WindowOnly)
             }
         };
-        AsyncComponentParts {
-            model: Self { _content: content },
-            widgets: (),
+        let mut model = Self {
+            _content: content,
+            tray_presence: TrayPresence::Absent,
+            tray_control,
+            tray_content: TrayContent::default(),
+        };
+        if background_wanted {
+            model.show_tray(&sender);
+        }
+        AsyncComponentParts { model, widgets: () }
+    }
+
+    async fn update(
+        &mut self,
+        input: Self::Input,
+        sender: AsyncComponentSender<Self>,
+        _root: &Self::Root,
+    ) {
+        match input {
+            AppWindowInput::MainView(MainViewOutput::TrayContentChanged(tray_content)) => {
+                self.show_tray_content(tray_content);
+            }
+            AppWindowInput::RunInBackgroundChanged(run_in_background) => {
+                let preferences = AppPreferences::load();
+                if run_in_background || managed_by_systemd() {
+                    self.show_tray(&sender);
+                } else {
+                    self.hide_tray();
+                }
+                Self::apply_login_autostart(
+                    &sender,
+                    run_in_background && preferences.start_at_login(),
+                );
+            }
+            AppWindowInput::StartAtLoginChanged(start_at_login) => {
+                let preferences = AppPreferences::load();
+                Self::apply_login_autostart(
+                    &sender,
+                    start_at_login && keeps_running_in_background(&preferences),
+                );
+            }
+        }
+    }
+
+    async fn update_cmd(
+        &mut self,
+        command_output: Self::CommandOutput,
+        _sender: AsyncComponentSender<Self>,
+        _root: &Self::Root,
+    ) {
+        match command_output {
+            AppWindowCommand::TrayStarted(Ok(tray_handle)) => {
+                if matches!(self.tray_presence, TrayPresence::Starting) {
+                    self.tray_presence = TrayPresence::Shown(tray_handle);
+                } else {
+                    let _shutdown_runs_without_waiting = tray_handle.shutdown();
+                }
+            }
+            AppWindowCommand::TrayStarted(Err(tray_error)) => {
+                self.tray_presence = TrayPresence::Absent;
+                eprintln!("No tray icon: {tray_error}");
+            }
+            AppWindowCommand::LoginAutostartApplied(Ok(())) => {}
+            AppWindowCommand::LoginAutostartApplied(Err(autostart_error)) => {
+                eprintln!("Start at login not applied: {autostart_error}");
+            }
         }
     }
 

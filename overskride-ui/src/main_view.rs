@@ -1,14 +1,15 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
 use futures::StreamExt;
 use overskride_bluetooth::adapter_state::{AdapterSnapshot, read_adapter};
 use overskride_bluetooth::bluetooth_error::BluetoothError;
-use overskride_bluetooth::device_actions::read_device;
+use overskride_bluetooth::device_actions::{connect_device, disconnect_device, read_device};
 use overskride_bluetooth::device_changes::DeviceChange;
 use overskride_bluetooth::device_snapshot::DeviceSnapshot;
 use overskride_bluetooth::discovery::{DiscoverySession, start_discovery};
 use overskride_bluetooth::pairing_agent::{AgentPolicy, PairingRequest, pairing_requests};
+use overskride_bluetooth::pairing_failure::ConnectionStepFailure;
 use overskride_bluetooth::radios::RadioDescription;
 use overskride_bluetooth::session::{BluetoothSession, DeviceLocation};
 use relm4::adw;
@@ -18,8 +19,10 @@ use relm4::prelude::*;
 
 use relm4::factory::FactoryVecDeque;
 
-use crate::adapter_page::{AdapterPage, AdapterPageInit, AdapterPageOutput};
+use crate::adapter_page::{AdapterPage, AdapterPageInit, AdapterPageInput, AdapterPageOutput};
 use crate::adapter_row::{AdapterRow, AdapterRowInit};
+use crate::app_actions::QuitAction;
+use crate::app_actions::present_main_window;
 use crate::app_preferences::AppPreferences;
 use crate::app_settings_page::AppSettingsPage;
 use crate::device_list::{DeviceList, DeviceListInput, DeviceListOutput, DeviceListSource};
@@ -28,6 +31,7 @@ use crate::device_page::{
 };
 use crate::pairing_prompts::{RequesterDescription, present_pairing_request};
 use crate::transfers_popover::{TransfersInit, TransfersInput, TransfersOutput, TransfersPopover};
+use crate::tray_icon::{TrayContent, TrayDevice, TrayRequest};
 
 const SCAN_DURATION_SECONDS: u32 = 60;
 const SCAN_TICK: Duration = Duration::from_secs(1);
@@ -70,6 +74,7 @@ pub struct MainView {
     radios: Vec<RadioDescription>,
     adapter: AdapterSnapshot,
     device_names: HashMap<overskride_bluetooth::Address, String>,
+    paired_tray_devices: BTreeMap<overskride_bluetooth::Address, TrayDevice>,
     scan_state: ScanState,
     scan_generation: u64,
     content_page: ContentPage,
@@ -97,6 +102,12 @@ pub enum MainViewInput {
     DevicePage(DevicePageOutput),
     AdapterPage(AdapterPageOutput),
     Transfers(TransfersOutput),
+    Tray(TrayRequest),
+}
+
+#[derive(Debug)]
+pub enum MainViewOutput {
+    TrayContentChanged(TrayContent),
 }
 
 #[derive(Debug)]
@@ -112,6 +123,7 @@ pub enum MainViewCommand {
         after_switch: AfterAdapterSwitch,
     },
     DeviceRead(Result<DeviceSnapshot, BluetoothError>),
+    TrayConnectionChanged(Result<(), ConnectionStepFailure>),
 }
 
 fn launch_device_list(
@@ -267,7 +279,9 @@ impl MainView {
             adapter.adapter_name.clone(),
         ));
         self.device_names.clear();
+        self.paired_tray_devices.clear();
         self.adapter = adapter;
+        self.publish_tray_content(sender);
         self.mark_active_adapter();
         self.show_adapter_page();
     }
@@ -280,12 +294,89 @@ impl MainView {
     ) {
         match device_list_output {
             DeviceListOutput::Opened(snapshot) => self.open_device(snapshot, sender),
-            DeviceListOutput::Changed(device_change) => self.forward_device_change(device_change),
+            DeviceListOutput::Changed(device_change) => {
+                self.remember_tray_device(&device_change);
+                self.publish_tray_content(sender);
+                self.forward_device_change(device_change);
+            }
             DeviceListOutput::ShowUnnamedRequested => {
                 self.preferences.set_show_unnamed_devices(true);
             }
             DeviceListOutput::Unavailable(subscription_error) => {
                 root.add_toast(adw::Toast::new(&subscription_error.to_string()));
+            }
+        }
+    }
+
+    fn remember_tray_device(&mut self, device_change: &DeviceChange) {
+        match device_change {
+            DeviceChange::Appeared(snapshot) | DeviceChange::Updated(snapshot)
+                if snapshot.paired =>
+            {
+                self.paired_tray_devices.insert(
+                    snapshot.address(),
+                    TrayDevice {
+                        address: snapshot.address(),
+                        display_name: snapshot.display_name().to_string(),
+                        connected: snapshot.connected,
+                    },
+                );
+            }
+            DeviceChange::Appeared(snapshot) | DeviceChange::Updated(snapshot) => {
+                self.paired_tray_devices.remove(&snapshot.address());
+            }
+            DeviceChange::Disappeared(address) => {
+                self.paired_tray_devices.remove(address);
+            }
+        }
+    }
+
+    fn publish_tray_content(&self, sender: &ComponentSender<Self>) {
+        let mut paired_devices: Vec<TrayDevice> =
+            self.paired_tray_devices.values().cloned().collect();
+        paired_devices.sort_by(|first_device, second_device| {
+            second_device
+                .connected
+                .cmp(&first_device.connected)
+                .then_with(|| first_device.display_name.cmp(&second_device.display_name))
+        });
+        let _app_window_gone = sender.output(MainViewOutput::TrayContentChanged(TrayContent {
+            powered: self.adapter.powered,
+            visible_for_pairing: self.adapter.discoverable,
+            paired_devices,
+        }));
+    }
+
+    fn handle_tray_request(&mut self, tray_request: TrayRequest, sender: &ComponentSender<Self>) {
+        match tray_request {
+            TrayRequest::SetPowered(powered) => {
+                self.adapter_page
+                    .emit(AdapterPageInput::PoweredToggled(powered));
+            }
+            TrayRequest::SetVisibleForPairing(visible_for_pairing) => {
+                self.adapter_page
+                    .emit(AdapterPageInput::VisibleForPairingToggled(
+                        visible_for_pairing,
+                    ));
+            }
+            TrayRequest::SetDeviceConnected { address, connected } => {
+                let session = self.session.clone();
+                let location = DeviceLocation {
+                    adapter_name: self.adapter.adapter_name.clone(),
+                    address,
+                };
+                sender.oneshot_command(async move {
+                    MainViewCommand::TrayConnectionChanged(if connected {
+                        connect_device(&session, &location).await
+                    } else {
+                        disconnect_device(&session, &location).await
+                    })
+                });
+            }
+            TrayRequest::ShowSettings => {
+                self.show_app_settings();
+                self.show_content = true;
+                present_main_window();
             }
         }
     }
@@ -374,7 +465,7 @@ impl MainView {
 impl Component for MainView {
     type Init = MainViewInit;
     type Input = MainViewInput;
-    type Output = ();
+    type Output = MainViewOutput;
     type CommandOutput = MainViewCommand;
 
     view! {
@@ -509,6 +600,7 @@ impl Component for MainView {
             },
             section! {
                 "_About Overskride" => AboutAction,
+                "_Quit" => QuitAction,
             },
         }
     }
@@ -596,6 +688,7 @@ impl Component for MainView {
             radios,
             adapter,
             device_names: HashMap::new(),
+            paired_tray_devices: BTreeMap::new(),
             scan_state: ScanState::Idle,
             scan_generation: 0,
             content_page: ContentPage::Adapter,
@@ -625,6 +718,7 @@ impl Component for MainView {
         window_actions.add_action(refresh_action);
         window_actions.add_action(about_action);
         window_actions.register_for_widget(&root);
+        model.publish_tray_content(&sender);
 
         ComponentParts { model, widgets }
     }
@@ -695,7 +789,9 @@ impl Component for MainView {
                     self.scan_state = ScanState::Idle;
                 }
                 self.adapter = adapter;
+                self.publish_tray_content(&sender);
             }
+            MainViewInput::Tray(tray_request) => self.handle_tray_request(tray_request, &sender),
         }
     }
 
@@ -788,6 +884,10 @@ impl Component for MainView {
             MainViewCommand::DeviceRead(Ok(snapshot)) => self.open_device(snapshot, &sender),
             MainViewCommand::DeviceRead(Err(read_error)) => {
                 root.add_toast(adw::Toast::new(&read_error.to_string()));
+            }
+            MainViewCommand::TrayConnectionChanged(Ok(())) => {}
+            MainViewCommand::TrayConnectionChanged(Err(connection_failure)) => {
+                root.add_toast(adw::Toast::new(&connection_failure.to_string()));
             }
         }
     }

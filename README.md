@@ -17,6 +17,18 @@ File transfers also need `obexd` (often packaged as `bluez-obex`).
 - **Nix:** `nix run github:kaii-lb/overskride`, or add the flake's `overlays.default` to your system.
 - **From source:** see below.
 
+# Running in the background
+
+Closing the window keeps Overskride running, so phones can still pair and send files. A tray icon (on desktops with StatusNotifierItem support, e.g. KDE, or GNOME with the AppIndicator extension) reopens the window. Pairing requests and incoming files show a notification while the window is hidden or unfocused. Quit from the main menu, the tray icon or with Ctrl+Q. Both behaviours can be switched off under Settings → Background.
+
+To start hidden at login, either turn on *Start at Login* in the settings, or run Overskride as a systemd user service:
+
+- **home-manager:** import `overskride.homeManagerModules.default` and set `services.overskride.enable = true;`
+- **NixOS:** import `overskride.nixosModules.default` and set `services.overskride.enable = true;` (enabled for every graphical session)
+- **Other distributions:** `make install` installs `lib/systemd/user/overskride.service`; enable it with `systemctl --user enable --now overskride`
+
+The service runs `overskride --background`. Launching Overskride from the app menu opens the window of that running instance.
+
 # Building
 
 ## Prerequisites
@@ -72,8 +84,7 @@ flatpak-builder --user --install --force-clean flatpak-build io.github.kaii_lb.O
 - Battery polling over bluetooth (enable experimental bluetooth options)
 - Transfer rate for incoming/outgoing file transfers
 - More info about device (with distance approximation)
+- Running in the background with a tray icon and notifications
 
 # What doesn't work
-- Applet support aka system tray
 - Quality of life stuff (auto trust on pair, auto accept service)
-- Background running with tray applet

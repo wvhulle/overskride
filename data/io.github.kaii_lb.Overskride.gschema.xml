@@ -33,5 +33,13 @@
 			<default>false</default>
 			<summary>lists devices that don't broadcast a name</summary>
 		</key>
+		<key name="run-in-background" type="b">
+			<default>true</default>
+			<summary>keeps pairing and receiving files after the window closes</summary>
+		</key>
+		<key name="start-at-login" type="b">
+			<default>false</default>
+			<summary>starts hidden in the background when the user logs in</summary>
+		</key>
 	</schema>
 </schemalist>

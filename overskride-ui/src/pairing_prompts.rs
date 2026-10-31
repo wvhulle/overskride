@@ -7,8 +7,9 @@ use relm4::adw::prelude::*;
 use relm4::gtk;
 use relm4::gtk::glib;
 
+use crate::attention_dialogs::choose_with_notification;
 use crate::widgets::alert_dialogs::{
-    CANCEL_CHOICE, answer_entry, build_alert, choose_response, plain_choice, suggested_choice,
+    CANCEL_CHOICE, answer_entry, build_alert, plain_choice, suggested_choice,
 };
 
 pub struct RequesterDescription {
@@ -19,7 +20,7 @@ pub struct RequesterDescription {
 fn show_information(heading: &str, body: &str) {
     let information_dialog = build_alert(heading, body, &[suggested_choice("ok", "OK")]);
     relm4::spawn_local(async move {
-        choose_response(&information_dialog).await;
+        choose_with_notification(&information_dialog, &[]).await;
     });
 }
 
@@ -41,7 +42,7 @@ pub fn present_pairing_request(pairing_request: PairingRequest, requester: &Requ
             );
             pin_dialog.set_extra_child(Some(&pin_entry));
             relm4::spawn_local(async move {
-                if choose_response(&pin_dialog).await == "confirm" {
+                if choose_with_notification(&pin_dialog, &[]).await == "confirm" {
                     pin_code_request.answer(pin_entry.text().to_string());
                 }
             });
@@ -57,7 +58,7 @@ pub fn present_pairing_request(pairing_request: PairingRequest, requester: &Requ
             );
             passkey_dialog.set_extra_child(Some(&passkey_entry));
             relm4::spawn_local(async move {
-                let confirmed = choose_response(&passkey_dialog).await == "confirm";
+                let confirmed = choose_with_notification(&passkey_dialog, &[]).await == "confirm";
                 let entered_passkey = passkey_entry.text().trim().parse().ok();
                 if let (true, Some(passkey)) = (confirmed, entered_passkey) {
                     passkey_request.answer(passkey);
@@ -85,19 +86,24 @@ pub fn present_pairing_request(pairing_request: PairingRequest, requester: &Requ
                 &confirm_choices,
             );
             relm4::spawn_local(async move {
-                if choose_response(&confirmation_dialog).await == "confirm" {
+                if choose_with_notification(&confirmation_dialog, &confirm_choices).await
+                    == "confirm"
+                {
                     approval.approve();
                 }
             });
         }
         PairingRequest::Authorization(approval) => {
+            let authorization_choices = [CANCEL_CHOICE, suggested_choice("allow", "Allow")];
             let authorization_dialog = build_alert(
                 "Allow Pairing?",
                 &format!("{device_name} wants to pair on {radio_label}."),
-                &[CANCEL_CHOICE, suggested_choice("allow", "Allow")],
+                &authorization_choices,
             );
             relm4::spawn_local(async move {
-                if choose_response(&authorization_dialog).await == "allow" {
+                if choose_with_notification(&authorization_dialog, &authorization_choices).await
+                    == "allow"
+                {
                     approval.approve();
                 }
             });
@@ -105,20 +111,22 @@ pub fn present_pairing_request(pairing_request: PairingRequest, requester: &Requ
         PairingRequest::ServiceAuthorization(service_request) => {
             let service_name = describe_service(service_request.service)
                 .unwrap_or_else(|| service_request.service.to_string());
+            let service_choices = [
+                plain_choice("deny", "Deny"),
+                plain_choice("once", "Allow Once"),
+                suggested_choice("always", "Always Allow"),
+            ];
             let service_dialog = build_alert(
                 "Connection Request",
                 &format!(
                     "{device_name} wants to connect: {service_name}, via {radio_label}. Answer within {} seconds, or the request is denied.",
                     SERVICE_AUTHORIZATION_TIMEOUT.as_secs()
                 ),
-                &[
-                    plain_choice("deny", "Deny"),
-                    plain_choice("once", "Allow Once"),
-                    suggested_choice("always", "Always Allow"),
-                ],
+                &service_choices,
             );
             relm4::spawn_local(async move {
-                let response_future = choose_response(&service_dialog).fuse();
+                let response_future =
+                    choose_with_notification(&service_dialog, &service_choices).fuse();
                 let expiry_future = glib::timeout_future(SERVICE_AUTHORIZATION_TIMEOUT).fuse();
                 futures::pin_mut!(response_future, expiry_future);
                 let chosen_response = futures::select! {

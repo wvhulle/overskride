@@ -15,10 +15,9 @@ use relm4::gtk::glib;
 use relm4::prelude::*;
 
 use crate::app_preferences::AppPreferences;
+use crate::attention_dialogs::choose_with_notification;
 use crate::device_page::ObexAvailability;
-use crate::widgets::alert_dialogs::{
-    AlertChoice, build_alert, choose_response, plain_choice, suggested_choice,
-};
+use crate::widgets::alert_dialogs::{AlertChoice, build_alert, plain_choice, suggested_choice};
 
 const FINISHED_TRANSFER_LINGER: Duration = Duration::from_secs(60);
 const BYTES_PER_MEGABYTE: f64 = 1_000_000.0;
@@ -129,6 +128,11 @@ impl TransfersPopover {
     }
 
     fn ask_user(assessment: SenderAssessment, sender: &ComponentSender<Self>) {
+        let answer_choices: &[AlertChoice] = if assessment.bonded {
+            &BONDED_SENDER_CHOICES
+        } else {
+            &UNBONDED_SENDER_CHOICES
+        };
         let question_dialog = build_alert(
             "File Transfer Incoming",
             &format!(
@@ -137,17 +141,14 @@ impl TransfersPopover {
                 megabytes(assessment.incoming_transfer.total_bytes),
                 assessment.sender_name
             ),
-            if assessment.bonded {
-                &BONDED_SENDER_CHOICES
-            } else {
-                &UNBONDED_SENDER_CHOICES
-            },
+            answer_choices,
         );
         let input_sender = sender.input_sender().clone();
         let incoming_transfer = assessment.incoming_transfer;
         relm4::spawn_local(async move {
-            let transfer_decision =
-                TransferDecision::from_response(&choose_response(&question_dialog).await);
+            let transfer_decision = TransferDecision::from_response(
+                &choose_with_notification(&question_dialog, answer_choices).await,
+            );
             input_sender.emit(TransfersInput::Decided {
                 incoming_transfer,
                 transfer_decision,

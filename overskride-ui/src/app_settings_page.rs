@@ -6,7 +6,8 @@ use relm4::gtk;
 use relm4::gtk::gio;
 use relm4::prelude::*;
 
-use crate::app_preferences::AppPreferences;
+use crate::app_preferences::{AppPreferences, RUN_IN_BACKGROUND_KEY, START_AT_LOGIN_KEY};
+use crate::login_autostart::managed_by_systemd;
 use crate::widgets::page_templates::{ClampedPage, PageHeader};
 
 pub struct AppSettingsPage {
@@ -66,6 +67,31 @@ impl SimpleComponent for AppSettingsPage {
                 },
 
                 adw::PreferencesGroup {
+                    set_title: "Background",
+                    set_description: Some("Pairing requests and incoming files need Overskride to be running."),
+
+                    #[name = "run_in_background_row"]
+                    adw::SwitchRow {
+                        set_title: "Keep Running When Closed",
+                        set_subtitle: if managed_by_systemd() {
+                            "Always on: started by the systemd user service"
+                        } else {
+                            "Closing the window hides it. Quit from the menu, the tray icon or with Ctrl+Q."
+                        },
+                    },
+
+                    #[name = "start_at_login_row"]
+                    adw::SwitchRow {
+                        set_title: "Start at Login",
+                        set_subtitle: if managed_by_systemd() {
+                            "Managed by the systemd user service"
+                        } else {
+                            "Starts hidden in the background"
+                        },
+                    },
+                },
+
+                adw::PreferencesGroup {
                     set_title: "Device List",
 
                     #[name = "show_unnamed_row"]
@@ -94,6 +120,30 @@ impl SimpleComponent for AppSettingsPage {
         settings
             .bind("show-unnamed-devices", &widgets.show_unnamed_row, "active")
             .build();
+        if managed_by_systemd() {
+            widgets.run_in_background_row.set_active(true);
+            widgets.run_in_background_row.set_sensitive(false);
+            widgets.start_at_login_row.set_sensitive(false);
+        } else {
+            settings
+                .bind(
+                    RUN_IN_BACKGROUND_KEY,
+                    &widgets.run_in_background_row,
+                    "active",
+                )
+                .build();
+            settings
+                .bind(START_AT_LOGIN_KEY, &widgets.start_at_login_row, "active")
+                .build();
+            settings
+                .bind(
+                    RUN_IN_BACKGROUND_KEY,
+                    &widgets.start_at_login_row,
+                    "sensitive",
+                )
+                .get()
+                .build();
+        }
 
         ComponentParts { model, widgets }
     }

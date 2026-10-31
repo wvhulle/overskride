@@ -7,6 +7,8 @@ use relm4::gtk::prelude::*;
 pub const APPLICATION_ID: &str = "io.github.kaii_lb.Overskride";
 const RECEIVED_FILES_SUBFOLDER: &str = "Bluetooth";
 const AUTO_ACCEPT_SENDERS_KEY: &str = "auto-accept-senders";
+pub const RUN_IN_BACKGROUND_KEY: &str = "run-in-background";
+pub const START_AT_LOGIN_KEY: &str = "start-at-login";
 
 #[derive(Clone, Debug)]
 pub struct AppPreferences {
@@ -52,6 +54,14 @@ impl AppPreferences {
         let _unwritable_setting_is_not_fatal = self
             .settings
             .set_boolean("show-unnamed-devices", show_unnamed_devices);
+    }
+
+    pub fn run_in_background(&self) -> bool {
+        self.settings.boolean(RUN_IN_BACKGROUND_KEY)
+    }
+
+    pub fn start_at_login(&self) -> bool {
+        self.settings.boolean(START_AT_LOGIN_KEY)
     }
 
     pub fn accepts_files_from(&self, sender_address: overskride_bluetooth::Address) -> bool {
