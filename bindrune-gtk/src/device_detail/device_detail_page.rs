@@ -45,9 +45,9 @@ use crate::{
             CapabilityOverview, CapabilityOverviewInput, CapabilitySources,
         },
         pairing_step_timeline::{
-            pairing_step_presentation::{
-                ActivePairing, LinkMeasurements, ReportTimingState, StepButtonAction,
-                TimelineAction, TimelineInputs,
+            link_quality_presentation::{LinkMeasurements, ReportTimingState},
+            pairing_timeline_view_model::{
+                ActivePairing, StepButtonAction, TimelineAction, TimelineInputs,
             },
             pairing_timeline_widgets::{PairingTimeline, PairingTimelineInput},
         },

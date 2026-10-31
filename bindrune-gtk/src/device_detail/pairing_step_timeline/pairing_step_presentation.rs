@@ -1,259 +1,31 @@
-use std::{
-    path::PathBuf,
-    time::{Duration, Instant},
-};
-
 use bindrune_bluez::{
     bluetooth_adapter::device_bond_per_adapter::{RadioBond, RadioMembership},
-    device_pairing::{
-        pairing_step_failure::PairingFailure,
-        pairing_step_progress::{
-            ConnectionPolicy, PAIRING_STEP_DEFINITIONS, PairingStep, applicable_steps,
-            connection_policy, first_missing_step, is_step_applicable, is_step_done,
-            step_definition,
-        },
+    device_pairing::pairing_step_progress::{
+        ConnectionPolicy, PAIRING_STEP_DEFINITIONS, PairingStep, applicable_steps,
+        connection_policy, first_missing_step, is_step_applicable, is_step_done, step_definition,
     },
-    link_quality::{
-        disconnect_reason_history::ConnectionHistory,
-        hidraw_report_timing::{NOTICEABLE_GAP, ReportTiming, ReportTimingSample},
-    },
-    remote_device::{
-        linux_kernel_input_devices::{KernelInputBinding, KernelInputDevices},
-        remote_device_snapshot::{
-            BatteryReading, DeviceClass, DeviceSnapshot, DistanceEstimate, SignalStrength,
-        },
-    },
-};
-use uom::{
-    fmt::DisplayStyle,
-    si::{
-        f32::{Ratio, Time},
-        frequency::hertz,
-        length::meter,
-        ratio::percent,
-        time::{millisecond, second},
-    },
+    remote_device::remote_device_snapshot::{BatteryReading, DeviceClass},
 };
 
-use crate::shared_device_appearance::{SignalQuality, input_device_missing};
-
-const DROP_COUNTING_WINDOW: Duration = Duration::from_secs(3600);
-const UNSTABLE_SIGNAL_LOSS_COUNT: usize = 2;
-
-const UNSTABLE_WORST_GAP: Duration = Duration::from_millis(100);
-
-fn unstable_lagging_share() -> Ratio {
-    Ratio::new::<percent>(2.0)
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum ReportTimingState {
-    NotApplicable,
-    Waiting(PathBuf),
-    Sampled {
-        hidraw_node: PathBuf,
-        sample: ReportTimingSample,
+use crate::{
+    device_detail::pairing_step_timeline::{
+        link_quality_presentation::in_range,
+        pairing_timeline_view_model::{
+            ActivePairing, PolicySelector, PropertyHint, PropertyRow, RadioControl,
+            RadioRowPresentation, RadioSectionPresentation, StepButton, StepButtonAction,
+            StepButtonSlot, StepNodeState, StepParts, StepPresentation, TimelineInputs,
+            TimelinePresentation, hinted_property, inline_property, stacked_property,
+        },
     },
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct LinkMeasurements {
-    pub connection_history: ConnectionHistory,
-    pub report_timing: ReportTimingState,
-    pub measured_at: Instant,
-}
-
-impl LinkMeasurements {
-    pub fn unmeasured(connection_history: ConnectionHistory) -> Self {
-        Self {
-            connection_history,
-            report_timing: ReportTimingState::NotApplicable,
-            measured_at: Instant::now(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ActivePairing {
-    Idle,
-    Running(PairingStep),
-    Failed(PairingFailure),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StepNodeState {
-    Done,
-    Next,
-    Running,
-    Warning,
-    Failed,
-    Pending,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum StepButtonAction {
-    Pair,
-    PairAgain,
-    Connect,
-    Disconnect,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum TimelineAction {
-    Step(StepButtonAction),
-    ForgetDevice,
-    SetConnectionPolicy(ConnectionPolicy),
-    ShowRadio(String),
-    PairViaRadio(String),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StepButton {
-    pub action: StepButtonAction,
-    pub label: &'static str,
-    pub sensitive: bool,
-    pub suggested: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum StepButtonSlot {
-    Hidden,
-    Shown(StepButton),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PolicySelector {
-    Absent,
-    Present {
-        selected: ConnectionPolicy,
-        sensitive: bool,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PropertyHint {
-    Absent,
-    Shown(String),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PropertyRow {
-    Inline {
-        key: String,
-        value: String,
-        hint: PropertyHint,
-    },
-    InlineWithIcon {
-        key: String,
-        value: String,
-        hint: PropertyHint,
-        icon_name: String,
-    },
-    Stacked {
-        key: String,
-        value: String,
-        hint: PropertyHint,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct StepPresentation {
-    pub step: PairingStep,
-    pub title: &'static str,
-    pub protocol_term: &'static str,
-    pub protocol_details: &'static str,
-    pub visible: bool,
-    pub sensitive: bool,
-    pub node_state: StepNodeState,
-    pub status_text: String,
-    pub button: StepButtonSlot,
-    pub policy_selector: PolicySelector,
-    pub property_rows: Vec<PropertyRow>,
-    pub needs_attention: bool,
-    pub offers_forget: bool,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum RadioControl {
-    Shown,
-    Show(String),
-    PairVia(String),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RadioRowPresentation {
-    pub radio_label: String,
-    pub state_text: &'static str,
-    pub may_be_stale: bool,
-    pub control: RadioControl,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct RadioSectionPresentation {
-    pub visible: bool,
-    pub shown_radio_label: String,
-    pub also_bonded_via: String,
-    pub rows: Vec<RadioRowPresentation>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TimelinePresentation {
-    pub summary: String,
-    pub completed_steps: usize,
-    pub applicable_step_count: usize,
-    pub steps: Vec<StepPresentation>,
-    pub radios: RadioSectionPresentation,
-}
-
-pub struct TimelineInputs<'inputs> {
-    pub snapshot: &'inputs DeviceSnapshot,
-    pub radio_bonds: &'inputs [RadioBond],
-    pub active_pairing: &'inputs ActivePairing,
-    pub link_measurements: &'inputs LinkMeasurements,
-}
-
-fn inline_property(key: &str, value: impl Into<String>) -> PropertyRow {
-    PropertyRow::Inline {
-        key: key.to_string(),
-        value: value.into(),
-        hint: PropertyHint::Absent,
-    }
-}
-
-fn hinted_property(key: &str, value: impl Into<String>, hint_text: &str) -> PropertyRow {
-    PropertyRow::Inline {
-        key: key.to_string(),
-        value: value.into(),
-        hint: PropertyHint::Shown(hint_text.to_string()),
-    }
-}
-
-fn stacked_property(key: &str, value: impl Into<String>) -> PropertyRow {
-    PropertyRow::Stacked {
-        key: key.to_string(),
-        value: value.into(),
-        hint: PropertyHint::Absent,
-    }
-}
-
-fn capitalize_first_letter(text: &str) -> String {
-    let mut characters = text.chars();
-    characters
-        .next()
-        .map_or_else(String::new, |first_character| {
-            first_character
-                .to_uppercase()
-                .chain(characters.flat_map(char::to_lowercase))
-                .collect()
-        })
-}
+    shared_device_appearance::input_device_missing,
+};
 
 impl TimelineInputs<'_> {
     fn is_running(&self, step: PairingStep) -> bool {
         *self.active_pairing == ActivePairing::Running(step)
     }
 
-    fn is_busy(&self) -> bool {
+    pub(super) fn is_busy(&self) -> bool {
         matches!(self.active_pairing, ActivePairing::Running(_))
     }
 
@@ -330,7 +102,7 @@ impl TimelineInputs<'_> {
         }
     }
 
-    fn button(
+    pub(super) fn button(
         &self,
         action: StepButtonAction,
         label: &'static str,
@@ -358,10 +130,7 @@ impl TimelineInputs<'_> {
         } else {
             "Put the device in pairing mode, then press Pair"
         };
-        let address_hint = format!(
-            "{} address",
-            capitalize_first_letter(&snapshot.address_type)
-        );
+        let address_hint = format!("{} address", snapshot.address_type);
         let method_row = if snapshot.legacy_pairing {
             hinted_property("Method", "Legacy PIN pairing", "Older, weaker method")
         } else {
@@ -474,7 +243,7 @@ impl TimelineInputs<'_> {
         }
     }
 
-    fn battery_rows(&self) -> Vec<PropertyRow> {
+    pub(super) fn battery_rows(&self) -> Vec<PropertyRow> {
         let snapshot = self.snapshot;
         if !snapshot.connected {
             return Vec::new();
@@ -493,206 +262,6 @@ impl TimelineInputs<'_> {
             hint: PropertyHint::Shown(battery_source.to_string()),
             icon_name: format!("battery-level-{rounded_battery_level}-symbolic"),
         }]
-    }
-
-    fn signal_step(&self, default_state: StepNodeState) -> StepParts {
-        let snapshot = self.snapshot;
-        let (status_text, property_rows) = match snapshot.signal_strength {
-            SignalStrength::Measured(rssi) => {
-                let signal_quality = SignalQuality::from_rssi(rssi);
-                (
-                    format!("{} signal, in range", signal_quality.quality_label()),
-                    vec![
-                        PropertyRow::InlineWithIcon {
-                            key: "Signal strength".to_string(),
-                            value: format!("{rssi} dBm"),
-                            hint: PropertyHint::Shown("Measured while scanning".to_string()),
-                            icon_name: signal_quality.quality_icon_name().to_string(),
-                        },
-                        distance_row(snapshot.distance_estimate()),
-                    ],
-                )
-            }
-            SignalStrength::Unknown if snapshot.connected => {
-                ("Connected, strength not reported".to_string(), Vec::new())
-            }
-            SignalStrength::Unknown => (
-                "Not measured: press Scan to check whether it is nearby".to_string(),
-                Vec::new(),
-            ),
-        };
-        StepParts {
-            node_state: if default_state == StepNodeState::Next && self.is_busy() {
-                StepNodeState::Pending
-            } else {
-                default_state
-            },
-            status_text,
-            button: StepButtonSlot::Hidden,
-            property_rows,
-        }
-    }
-
-    fn connection_step(&self, default_state: StepNodeState) -> StepParts {
-        let snapshot = self.snapshot;
-        let waiting_for_device = !snapshot.connected && snapshot.bonded && snapshot.trusted;
-        let ready_to_connect = waiting_for_device && in_range(snapshot);
-        let unstable_link = snapshot.connected && self.link_is_unstable();
-        let status_text = if unstable_link {
-            "Connected, unstable link"
-        } else if snapshot.connected {
-            "Connected"
-        } else if ready_to_connect {
-            "In range: press Connect if it doesn't connect by itself"
-        } else if waiting_for_device {
-            "Waiting: turn the device on or bring it closer"
-        } else {
-            "Not connected"
-        };
-        let button = if snapshot.connected {
-            self.button(
-                StepButtonAction::Disconnect,
-                "Disconnect",
-                snapshot.paired,
-                false,
-            )
-        } else {
-            self.button(
-                StepButtonAction::Connect,
-                "Connect",
-                snapshot.paired,
-                ready_to_connect,
-            )
-        };
-        StepParts {
-            node_state: if unstable_link {
-                StepNodeState::Warning
-            } else if ready_to_connect {
-                StepNodeState::Next
-            } else {
-                default_state
-            },
-            status_text: status_text.to_string(),
-            button,
-            property_rows: self
-                .link_rows()
-                .into_iter()
-                .chain(self.battery_rows())
-                .collect(),
-        }
-    }
-
-    fn measured_report_timing(&self) -> Option<&ReportTiming> {
-        match &self.link_measurements.report_timing {
-            ReportTimingState::Sampled {
-                sample: ReportTimingSample::Measured(report_timing),
-                ..
-            } => Some(report_timing),
-            ReportTimingState::NotApplicable
-            | ReportTimingState::Waiting(_)
-            | ReportTimingState::Sampled { .. } => None,
-        }
-    }
-
-    fn link_is_unstable(&self) -> bool {
-        let measurements = self.link_measurements;
-        let frequent_signal_losses = measurements
-            .connection_history
-            .signal_losses_within(measurements.measured_at, DROP_COUNTING_WINDOW)
-            >= UNSTABLE_SIGNAL_LOSS_COUNT;
-        let noticeable_lag = self.measured_report_timing().is_some_and(|report_timing| {
-            report_timing.streaming
-                && (report_timing.longest_gap >= UNSTABLE_WORST_GAP
-                    || report_timing.lagging_share >= unstable_lagging_share())
-        });
-        frequent_signal_losses || noticeable_lag
-    }
-
-    fn link_rows(&self) -> Vec<PropertyRow> {
-        let measurements = self.link_measurements;
-        let history = &measurements.connection_history;
-        let measured_at = measurements.measured_at;
-        let connected_row = history
-            .connected_for(measured_at)
-            .filter(|_connected_time| self.snapshot.connected)
-            .map(|connected_time| {
-                inline_property("Connected for", describe_whole_seconds(connected_time))
-            });
-        let recent_drops: Vec<_> = history
-            .drops_within(measured_at, DROP_COUNTING_WINDOW)
-            .collect();
-        let drops_row = (self.snapshot.connected || !recent_drops.is_empty()).then(|| {
-            let signal_losses = history.signal_losses_within(measured_at, DROP_COUNTING_WINDOW);
-            let drop_summary = match (recent_drops.len(), signal_losses) {
-                (0, _) => "None".to_string(),
-                (drop_count, 0) => drop_count.to_string(),
-                (drop_count, signal_losses) => {
-                    format!("{drop_count} ({signal_losses} signal lost)")
-                }
-            };
-            match recent_drops.last() {
-                Some(last_drop) => hinted_property(
-                    "Drops in the last hour",
-                    drop_summary,
-                    &format!(
-                        "Last: {}, {} ago",
-                        last_drop.reason.reason_label(),
-                        describe_whole_seconds(measured_at.duration_since(last_drop.observed_at))
-                    ),
-                ),
-                None => inline_property("Drops in the last hour", drop_summary),
-            }
-        });
-        let report_rows = if self.snapshot.connected {
-            describe_report_timing(&measurements.report_timing)
-        } else {
-            Vec::new()
-        };
-        connected_row
-            .into_iter()
-            .chain(drops_row)
-            .chain(report_rows)
-            .collect()
-    }
-
-    fn input_device_step(&self, default_state: StepNodeState) -> StepParts {
-        let snapshot = self.snapshot;
-        let (status_text, property_rows) = match &snapshot.kernel_input {
-            KernelInputBinding::Bound(kernel_input_devices) => {
-                let input_count = kernel_input_devices.input_nodes.len();
-                let plural_suffix = if input_count == 1 { "" } else { "s" };
-                (
-                    format!("{input_count} input device{plural_suffix}"),
-                    kernel_input_rows(kernel_input_devices),
-                )
-            }
-            KernelInputBinding::Absent if snapshot.connected => (
-                "No input device".to_string(),
-                vec![hinted_property(
-                    "Input devices",
-                    "None",
-                    "Check the kernel log (dmesg)",
-                )],
-            ),
-            KernelInputBinding::Absent => (
-                "Not connected".to_string(),
-                vec![hinted_property(
-                    "Input devices",
-                    "None yet",
-                    "Created automatically once connected",
-                )],
-            ),
-        };
-        StepParts {
-            node_state: if input_device_missing(snapshot) {
-                StepNodeState::Warning
-            } else {
-                default_state
-            },
-            status_text,
-            button: StepButtonSlot::Hidden,
-            property_rows,
-        }
     }
 
     fn step_parts(&self, step: PairingStep, first_missing: Option<PairingStep>) -> StepParts {
@@ -822,102 +391,6 @@ impl TimelineInputs<'_> {
     }
 }
 
-struct StepParts {
-    node_state: StepNodeState,
-    status_text: String,
-    button: StepButtonSlot,
-    property_rows: Vec<PropertyRow>,
-}
-
-fn describe_whole_seconds(elapsed: Duration) -> String {
-    humantime::format_duration(Duration::from_secs(elapsed.as_secs())).to_string()
-}
-
-fn describe_report_rate(report_timing: &ReportTiming) -> String {
-    format!(
-        "{:.0}",
-        report_timing
-            .report_rate
-            .into_format_args(hertz, DisplayStyle::Abbreviation)
-    )
-}
-
-fn describe_report_timing(report_timing: &ReportTimingState) -> Vec<PropertyRow> {
-    match report_timing {
-        ReportTimingState::NotApplicable => Vec::new(),
-        ReportTimingState::Waiting(_hidraw_node) => {
-            vec![inline_property("Input reports", "Measuring…")]
-        }
-        ReportTimingState::Sampled {
-            sample: ReportTimingSample::Measured(measured_timing),
-            ..
-        } if measured_timing.streaming => vec![
-            hinted_property(
-                "Report rate",
-                describe_report_rate(measured_timing),
-                "Input reports per second, over the last 10 seconds",
-            ),
-            hinted_property(
-                "Worst gap",
-                format!(
-                    "{:.0}",
-                    Time::new::<second>(measured_timing.longest_gap.as_secs_f32())
-                        .into_format_args(millisecond, DisplayStyle::Abbreviation)
-                ),
-                "Longest time without a report, felt as lag",
-            ),
-            hinted_property(
-                "Time lagging",
-                format!(
-                    "{:.1}",
-                    measured_timing
-                        .lagging_share
-                        .into_format_args(percent, DisplayStyle::Abbreviation)
-                ),
-                &format!(
-                    "Time spent in gaps longer than {:.0}",
-                    Time::new::<second>(NOTICEABLE_GAP.as_secs_f32())
-                        .into_format_args(millisecond, DisplayStyle::Abbreviation)
-                ),
-            ),
-        ],
-        ReportTimingState::Sampled {
-            sample: ReportTimingSample::Measured(measured_timing),
-            ..
-        } => vec![hinted_property(
-            "Report rate",
-            describe_report_rate(measured_timing),
-            "Only sent while the device is in use, so gaps are not measured",
-        )],
-        ReportTimingState::Sampled {
-            hidraw_node,
-            sample: ReportTimingSample::Unreadable(read_error),
-        } => vec![hinted_property(
-            "Input reports",
-            format!("No access to {}", hidraw_node.display()),
-            &std::io::Error::from(*read_error).to_string(),
-        )],
-    }
-}
-
-fn in_range(snapshot: &DeviceSnapshot) -> bool {
-    matches!(snapshot.signal_strength, SignalStrength::Measured(_))
-}
-
-fn distance_row(distance_estimate: DistanceEstimate) -> PropertyRow {
-    match distance_estimate {
-        DistanceEstimate::Estimated(distance) => hinted_property(
-            "Distance",
-            format!(
-                "≈ {:.1}",
-                distance.into_format_args(meter, DisplayStyle::Abbreviation)
-            ),
-            "Rough estimate from signal strength",
-        ),
-        DistanceEstimate::Unknown => inline_property("Distance", "Unknown"),
-    }
-}
-
 fn describe_radio_membership(membership: RadioMembership) -> &'static str {
     match membership {
         RadioMembership::Unknown => "Doesn't know this device",
@@ -928,49 +401,32 @@ fn describe_radio_membership(membership: RadioMembership) -> &'static str {
     }
 }
 
-fn kernel_input_rows(kernel_input_devices: &KernelInputDevices) -> Vec<PropertyRow> {
-    let main_input_name = kernel_input_devices
-        .input_nodes
-        .first()
-        .map(|input_node| input_node.input_name.clone())
-        .unwrap_or_default();
-    let node_rows = kernel_input_devices.input_nodes.iter().map(|input_node| {
-        let input_label = input_node
-            .input_name
-            .strip_prefix(main_input_name.as_str())
-            .map(str::trim)
-            .filter(|name_suffix| !name_suffix.is_empty())
-            .unwrap_or("Main");
-        let device_paths: Vec<_> = input_node
-            .device_nodes
-            .iter()
-            .map(|device_node| format!("/dev/input/{device_node}"))
-            .collect();
-        stacked_property(input_label, device_paths.join(", "))
-    });
-    std::iter::once(hinted_property(
-        "Driver",
-        kernel_input_devices.driver_name.clone(),
-        "Linux HID driver",
-    ))
-    .chain(node_rows)
-    .collect()
-}
-
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeSet, HashMap};
+    use std::{
+        collections::{BTreeSet, HashMap},
+        path::PathBuf,
+        time::{Duration, Instant},
+    };
 
     use bindrune_bluez::{
         bluez_dbus_session::DeviceLocation,
         device_pairing::pairing_step_failure::BondingFailure,
+        link_quality::{
+            disconnect_reason_history::ConnectionHistory, hidraw_report_timing::ReportTimingSample,
+        },
         remote_device::{
+            linux_kernel_input_devices::KernelInputBinding,
             nameless_device_type_guess::DeviceAppearance,
-            remote_device_snapshot::{Manufacturer, TransmitPower},
+            remote_device_snapshot::{DeviceSnapshot, Manufacturer, SignalStrength, TransmitPower},
         },
     };
+    use uom::si::{f32::Ratio, frequency::hertz, ratio::percent};
 
     use super::*;
+    use crate::device_detail::pairing_step_timeline::link_quality_presentation::{
+        LinkMeasurements, ReportTimingState,
+    };
 
     fn gamepad_snapshot() -> DeviceSnapshot {
         DeviceSnapshot {
@@ -1237,15 +693,6 @@ mod tests {
         snapshot.trusted = true;
         snapshot.icon_name = "phone".to_string();
         snapshot
-    }
-
-    #[test]
-    fn distance_is_rendered_by_uom_in_meters() {
-        let distance = uom::si::f32::Length::new::<meter>(2.04);
-        assert_eq!(
-            distance_row(DistanceEstimate::Estimated(distance)),
-            hinted_property("Distance", "≈ 2.0 m", "Rough estimate from signal strength")
-        );
     }
 
     #[test]

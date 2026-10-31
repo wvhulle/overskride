@@ -4,7 +4,7 @@ use relm4::{
 };
 
 use crate::{
-    device_detail::pairing_step_timeline::pairing_step_presentation::{
+    device_detail::pairing_step_timeline::pairing_timeline_view_model::{
         PolicySelector, PropertyHint, PropertyRow, RadioControl, RadioRowPresentation,
         StepButtonSlot, StepNodeState, StepPresentation, TimelineAction, TimelinePresentation,
     },
