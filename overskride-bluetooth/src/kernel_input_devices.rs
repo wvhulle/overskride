@@ -12,6 +12,7 @@ pub struct KernelInputNode {
 pub struct KernelInputDevices {
     pub driver_name: String,
     pub input_nodes: Vec<KernelInputNode>,
+    pub hidraw_nodes: Vec<PathBuf>,
     pub battery: BatteryReading,
 }
 
@@ -23,6 +24,8 @@ pub enum KernelInputBinding {
 
 const INPUT_CLASS_DIRECTORY: &str = "/sys/class/input";
 const POWER_SUPPLY_CLASS_DIRECTORY: &str = "/sys/class/power_supply";
+const HIDRAW_CLASS_DIRECTORY: &str = "/sys/class/hidraw";
+const DEVICE_NODE_DIRECTORY: &str = "/dev";
 const DEVICE_NODE_PREFIXES: [&str; 3] = ["event", "js", "mouse"];
 
 pub(crate) fn read_trimmed_attribute(attribute_path: &Path) -> Option<String> {
@@ -66,6 +69,20 @@ fn read_battery_for_hid_device(hid_device_directory: &Path) -> Option<u8> {
         })?;
     let capacity_text = read_trimmed_attribute(&power_supply_directory.join("capacity"))?;
     capacity_text.parse().ok()
+}
+
+fn find_hidraw_nodes(hid_device_directories: &[PathBuf]) -> Vec<PathBuf> {
+    sorted_directory_entries(Path::new(HIDRAW_CLASS_DIRECTORY))
+        .into_iter()
+        .filter(|hidraw_directory| {
+            std::fs::canonicalize(hidraw_directory.join("device")).is_ok_and(
+                |hid_device_directory| hid_device_directories.contains(&hid_device_directory),
+            )
+        })
+        .filter_map(|hidraw_directory| {
+            Some(Path::new(DEVICE_NODE_DIRECTORY).join(hidraw_directory.file_name()?))
+        })
+        .collect()
 }
 
 fn read_driver_name(hid_device_directory: &Path) -> Option<String> {
@@ -121,6 +138,7 @@ pub fn find_kernel_input_devices(address: bluer::Address) -> KernelInputBinding 
             .iter()
             .map(|input_directory| read_input_node(input_directory))
             .collect(),
+        hidraw_nodes: find_hidraw_nodes(&hid_device_directories),
         battery,
     })
 }

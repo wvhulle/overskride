@@ -406,6 +406,7 @@ pub(crate) mod tests {
             KernelInputBinding::Bound(crate::kernel_input_devices::KernelInputDevices {
                 driver_name: "playstation".to_string(),
                 input_nodes: Vec::new(),
+                hidraw_nodes: Vec::new(),
                 battery: BatteryReading::Percentage(40),
             });
         assert_eq!(snapshot.battery(), BatteryReading::Percentage(40));

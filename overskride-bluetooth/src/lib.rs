@@ -1,6 +1,7 @@
 pub mod adapter_state;
 pub mod audio_profiles;
 pub mod bluetooth_error;
+pub mod connection_drops;
 pub mod device_actions;
 pub mod device_capabilities;
 pub mod device_changes;
@@ -15,6 +16,7 @@ pub mod pairing_failure;
 pub mod pairing_steps;
 pub mod radio_bonds;
 pub mod radios;
+pub mod report_timing;
 pub mod service_names;
 pub mod session;
 

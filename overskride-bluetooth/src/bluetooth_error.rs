@@ -7,6 +7,7 @@ pub enum BluetoothError {
     Filesystem(std::io::ErrorKind),
     AudioServer(AudioServerFailure),
     BackgroundTaskStopped,
+    SystemBusUnavailable,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -345,6 +346,9 @@ impl fmt::Display for BluetoothError {
             Self::AudioServer(audio_failure) => write!(formatter, "{audio_failure}"),
             Self::BackgroundTaskStopped => {
                 formatter.write_str("A background Bluetooth task stopped unexpectedly.")
+            }
+            Self::SystemBusUnavailable => {
+                formatter.write_str("Cannot listen for Bluetooth events on the system bus.")
             }
         }
     }

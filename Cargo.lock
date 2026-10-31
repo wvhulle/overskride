@@ -1167,6 +1167,7 @@ dependencies = [
  "dbus-crossroads",
  "dbus-tokio",
  "futures",
+ "libc",
  "libpulse-binding",
  "phf",
  "tokio",

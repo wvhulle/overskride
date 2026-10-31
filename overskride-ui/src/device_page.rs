@@ -1,21 +1,25 @@
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use overskride_bluetooth::audio_profiles::{
     ActiveAudioProfile, AudioProfiles, read_audio_profiles, set_audio_profile, switch_audio_off,
 };
 use overskride_bluetooth::bluetooth_error::BluetoothError;
+use overskride_bluetooth::connection_drops::ConnectionHistory;
 use overskride_bluetooth::device_actions::{
     connect_device, disconnect_device, forget_device, pair_trust_and_connect, rename_device,
     set_connection_policy,
 };
 use overskride_bluetooth::device_snapshot::{DeviceSnapshot, Manufacturer};
+use overskride_bluetooth::kernel_input_devices::KernelInputBinding;
 use overskride_bluetooth::obex_transfers::{ObexConnection, TransferHandle};
 use overskride_bluetooth::pairing_failure::{
     AuthorizationFailure, ConnectionStepFailure, PairingFailure,
 };
 use overskride_bluetooth::pairing_steps::{PairingProgress, PairingStep};
 use overskride_bluetooth::radio_bonds::{RadioBond, read_radio_bonds};
+use overskride_bluetooth::report_timing::{ReportTimingSample, report_timing};
 use overskride_bluetooth::session::BluetoothSession;
 use relm4::adw;
 use relm4::adw::prelude::*;
@@ -28,7 +32,8 @@ use crate::device_status::{
     describe_address_type, describe_device_type, device_icon_name, type_guess_evidence,
 };
 use crate::pairing_presentation::{
-    ActivePairing, StepButtonAction, TimelineAction, TimelineInputs,
+    ActivePairing, LinkMeasurements, ReportTimingState, StepButtonAction, TimelineAction,
+    TimelineInputs,
 };
 use crate::pairing_timeline::{PairingTimeline, PairingTimelineInput};
 use crate::widgets::alert_dialogs::{
@@ -54,6 +59,8 @@ enum AudioState {
     Available(AudioProfiles),
 }
 
+const LINK_TICK: Duration = Duration::from_secs(1);
+
 pub struct DevicePageInit {
     pub session: BluetoothSession,
     pub obex: ObexAvailability,
@@ -61,6 +68,7 @@ pub struct DevicePageInit {
     pub accepts_files: bool,
     pub received_files_folder: PathBuf,
     pub snapshot: DeviceSnapshot,
+    pub connection_history: ConnectionHistory,
 }
 
 pub struct DevicePage {
@@ -78,11 +86,14 @@ pub struct DevicePage {
     audio_choices_changed: bool,
     timeline: Controller<PairingTimeline>,
     capability_overview: Controller<CapabilityOverview>,
+    link_measurements: LinkMeasurements,
+    report_generation: u64,
 }
 
 #[derive(Debug)]
 pub enum DevicePageInput {
     DeviceChanged(DeviceSnapshot),
+    ConnectionHistoryChanged(ConnectionHistory),
     RenameRequested(String),
     Timeline(TimelineAction),
     ChooseFilesToSend,
@@ -123,6 +134,11 @@ pub enum DevicePageCommand {
         rescan: bool,
     },
     FilesSending(Result<Vec<TransferHandle>, BluetoothError>),
+    LinkTick,
+    ReportTimingSampled {
+        generation: u64,
+        sample: ReportTimingSample,
+    },
 }
 
 fn capability_sources(snapshot: &DeviceSnapshot) -> CapabilitySources {
@@ -184,15 +200,67 @@ impl DevicePage {
         self.snapshot.address()
     }
 
-    fn present_timeline(&self) {
+    fn present_timeline(&mut self) {
+        self.link_measurements.measured_at = Instant::now();
         let presentation = TimelineInputs {
             snapshot: &self.snapshot,
             radio_bonds: &self.radio_bonds,
             active_pairing: &self.active_pairing,
+            link_measurements: &self.link_measurements,
         }
         .present();
         self.timeline
             .emit(PairingTimelineInput::Present(presentation));
+    }
+
+    fn follow_report_timing(&mut self, sender: &ComponentSender<Self>) {
+        let hidraw_node = match &self.snapshot.kernel_input {
+            KernelInputBinding::Bound(kernel_input_devices) if self.snapshot.connected => {
+                kernel_input_devices.hidraw_nodes.first().cloned()
+            }
+            KernelInputBinding::Bound(_) | KernelInputBinding::Absent => None,
+        };
+        match (hidraw_node, &self.link_measurements.report_timing) {
+            (Some(hidraw_node), ReportTimingState::NotApplicable) => {
+                self.report_generation += 1;
+                let generation = self.report_generation;
+                self.link_measurements.report_timing =
+                    ReportTimingState::Waiting(hidraw_node.clone());
+                sender.command(move |command_output, shutdown| {
+                    shutdown
+                        .register(report_timing(hidraw_node).for_each(move |sample| {
+                            command_output.emit(DevicePageCommand::ReportTimingSampled {
+                                generation,
+                                sample,
+                            });
+                            futures::future::ready(())
+                        }))
+                        .drop_on_shutdown()
+                });
+            }
+            (None, ReportTimingState::Waiting(_) | ReportTimingState::Sampled { .. }) => {
+                self.report_generation += 1;
+                self.link_measurements.report_timing = ReportTimingState::NotApplicable;
+            }
+            (Some(_), ReportTimingState::Waiting(_) | ReportTimingState::Sampled { .. })
+            | (None, ReportTimingState::NotApplicable) => {}
+        }
+    }
+
+    fn record_report_timing(&mut self, generation: u64, sample: ReportTimingSample) {
+        if generation != self.report_generation {
+            return;
+        }
+        let hidraw_node = match &self.link_measurements.report_timing {
+            ReportTimingState::Waiting(hidraw_node)
+            | ReportTimingState::Sampled { hidraw_node, .. } => hidraw_node.clone(),
+            ReportTimingState::NotApplicable => return,
+        };
+        self.link_measurements.report_timing = ReportTimingState::Sampled {
+            hidraw_node,
+            sample,
+        };
+        self.present_timeline();
     }
 
     fn read_radio_bonds(&self, sender: &ComponentSender<Self>) {
@@ -497,10 +565,12 @@ impl Component for DevicePage {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let link_measurements = LinkMeasurements::unmeasured(page_init.connection_history);
         let initial_presentation = TimelineInputs {
             snapshot: &page_init.snapshot,
             radio_bonds: &[],
             active_pairing: &ActivePairing::Idle,
+            link_measurements: &link_measurements,
         }
         .present();
         let timeline = PairingTimeline::builder()
@@ -526,11 +596,25 @@ impl Component for DevicePage {
             audio_choices_changed: true,
             timeline,
             capability_overview,
+            link_measurements,
+            report_generation: 0,
         };
         let widgets = view_output!();
 
         model.read_radio_bonds(&sender);
         model.read_audio_profiles(&sender);
+        model.follow_report_timing(&sender);
+        sender.command(|command_output, shutdown| {
+            shutdown
+                .register(async move {
+                    let mut link_ticks = tokio::time::interval(LINK_TICK);
+                    loop {
+                        link_ticks.tick().await;
+                        command_output.emit(DevicePageCommand::LinkTick);
+                    }
+                })
+                .drop_on_shutdown()
+        });
         ComponentParts { model, widgets }
     }
 
@@ -550,6 +634,11 @@ impl Component for DevicePage {
                     self.read_audio_profiles(&sender);
                     self.read_radio_bonds(&sender);
                 }
+                self.follow_report_timing(&sender);
+                self.present_timeline();
+            }
+            DevicePageInput::ConnectionHistoryChanged(connection_history) => {
+                self.link_measurements.connection_history = connection_history;
                 self.present_timeline();
             }
             DevicePageInput::RenameRequested(requested_alias) => {
@@ -649,6 +738,14 @@ impl Component for DevicePage {
         self.alias_changed = false;
         self.audio_choices_changed = false;
         match command_output {
+            DevicePageCommand::LinkTick => {
+                if self.snapshot.connected {
+                    self.present_timeline();
+                }
+            }
+            DevicePageCommand::ReportTimingSampled { generation, sample } => {
+                self.record_report_timing(generation, sample);
+            }
             DevicePageCommand::RadioBondsRead(Ok(radio_bonds)) => {
                 self.radio_bonds = radio_bonds;
                 self.present_timeline();

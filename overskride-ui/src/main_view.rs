@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, HashMap};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use futures::StreamExt;
 use overskride_bluetooth::adapter_state::{AdapterSnapshot, read_adapter};
 use overskride_bluetooth::bluetooth_error::BluetoothError;
+use overskride_bluetooth::connection_drops::{ConnectionDrop, ConnectionHistory, connection_drops};
 use overskride_bluetooth::device_actions::{connect_device, disconnect_device, read_device};
 use overskride_bluetooth::device_changes::DeviceChange;
 use overskride_bluetooth::device_snapshot::DeviceSnapshot;
@@ -78,6 +79,7 @@ pub struct MainView {
     adapter: AdapterSnapshot,
     device_names: HashMap<overskride_bluetooth::Address, String>,
     paired_tray_devices: BTreeMap<overskride_bluetooth::Address, TrayDevice>,
+    connection_histories: BTreeMap<overskride_bluetooth::Address, ConnectionHistory>,
     scan_state: ScanState,
     scan_generation: u64,
     content_page: ContentPage,
@@ -127,6 +129,7 @@ pub enum MainViewCommand {
     },
     DeviceRead(Result<DeviceSnapshot, BluetoothError>),
     TrayConnectionChanged(Result<(), ConnectionStepFailure>),
+    ConnectionDropped(ConnectionDrop),
 }
 
 fn launch_device_list(
@@ -237,6 +240,7 @@ impl MainView {
                 obex: self.obex.clone(),
                 adapter_address: self.adapter.address,
                 accepts_files: self.preferences.accepts_files_from(snapshot.address()),
+                connection_history: self.connection_history_of(snapshot.address()),
                 received_files_folder: self.preferences.received_files_folder(),
                 snapshot,
             })
@@ -310,6 +314,7 @@ impl MainView {
         match device_list_output {
             DeviceListOutput::Opened(snapshot) => self.open_device(snapshot, sender),
             DeviceListOutput::Changed(device_change) => {
+                self.remember_connection_state(&device_change);
                 self.remember_tray_device(&device_change);
                 self.publish_tray_content(sender);
                 self.forward_device_change(device_change);
@@ -400,6 +405,49 @@ impl MainView {
         match &self.content_page {
             ContentPage::Device(device_page) => Some(device_page.model().shown_address()),
             ContentPage::AppSettings | ContentPage::Adapter => None,
+        }
+    }
+
+    fn connection_history_of(&self, address: overskride_bluetooth::Address) -> ConnectionHistory {
+        self.connection_histories
+            .get(&address)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    fn update_connection_history(
+        &mut self,
+        address: overskride_bluetooth::Address,
+        change_history: impl FnOnce(&mut ConnectionHistory),
+    ) {
+        let connection_history = self.connection_histories.entry(address).or_default();
+        let previous_history = connection_history.clone();
+        change_history(connection_history);
+        if *connection_history == previous_history || self.shown_device_address() != Some(address) {
+            return;
+        }
+        if let ContentPage::Device(device_page) = &self.content_page {
+            device_page.emit(DevicePageInput::ConnectionHistoryChanged(
+                self.connection_history_of(address),
+            ));
+        }
+    }
+
+    fn remember_connection_state(&mut self, device_change: &DeviceChange) {
+        match device_change {
+            DeviceChange::Appeared(snapshot) | DeviceChange::Updated(snapshot) => {
+                let connected = snapshot.connected;
+                self.update_connection_history(snapshot.address(), |connection_history| {
+                    if connected {
+                        connection_history.record_connected(Instant::now());
+                    } else {
+                        connection_history.record_disconnected();
+                    }
+                });
+            }
+            DeviceChange::Disappeared(address) => {
+                self.connection_histories.remove(address);
+            }
         }
     }
 
@@ -675,6 +723,23 @@ impl Component for MainView {
             preference_sender.emit(MainViewInput::PreferenceChanged(preference_change));
         });
 
+        sender.command(|command_output, shutdown| {
+            shutdown
+                .register(async move {
+                    let Ok(drops) = connection_drops().await else {
+                        return;
+                    };
+                    drops
+                        .for_each(|connection_drop| {
+                            command_output
+                                .emit(MainViewCommand::ConnectionDropped(connection_drop));
+                            futures::future::ready(())
+                        })
+                        .await;
+                })
+                .drop_on_shutdown()
+        });
+
         let agent_session = session.clone();
         sender.command(move |command_output, shutdown| {
             shutdown
@@ -704,6 +769,7 @@ impl Component for MainView {
             adapter,
             device_names: HashMap::new(),
             paired_tray_devices: BTreeMap::new(),
+            connection_histories: BTreeMap::new(),
             scan_state: ScanState::Idle,
             scan_generation: 0,
             content_page: ContentPage::Adapter,
@@ -926,6 +992,13 @@ impl Component for MainView {
             MainViewCommand::DeviceRead(Ok(snapshot)) => self.open_device(snapshot, &sender),
             MainViewCommand::DeviceRead(Err(read_error)) => {
                 root.add_toast(adw::Toast::new(&read_error.to_string()));
+            }
+            MainViewCommand::ConnectionDropped(connection_drop) => {
+                if connection_drop.adapter_name == self.adapter.adapter_name {
+                    self.update_connection_history(connection_drop.address, |connection_history| {
+                        connection_history.record_drop(connection_drop);
+                    });
+                }
             }
             MainViewCommand::TrayConnectionChanged(Ok(())) => {}
             MainViewCommand::TrayConnectionChanged(Err(connection_failure)) => {

@@ -55,7 +55,7 @@ pub const PAIRING_STEP_DEFINITIONS: [PairingStepDefinition; 6] = [
         step: PairingStep::Connection,
         title: "Connection",
         protocol_term: "ACL link + L2CAP channels",
-        protocol_details: "The device pages this computer, both sides authenticate with the stored link key and encrypt the ACL link, then the profile opens its L2CAP channels. For input devices these are the HID control (PSM 17) and interrupt (PSM 19) channels.",
+        protocol_details: "The device pages this computer, both sides authenticate with the stored link key and encrypt the ACL link, then the profile opens its L2CAP channels. For input devices these are the HID control (PSM 17) and interrupt (PSM 19) channels.\n\nWhen no packet gets through for the link supervision timeout, BlueZ drops the connection and reports the reason Timeout, counted here as signal lost. Input devices send HID reports continuously or on every change; gaps between reports are felt as lag. Signal strength and link quality of a connected device are only available to root, so they are not shown. A common cause of lag is 2.4 GHz Wi-Fi sharing the antenna of a combined Wi-Fi and Bluetooth chip; switching Wi-Fi to 5 GHz often helps.",
     },
     PairingStepDefinition {
         step: PairingStep::InputDevice,
