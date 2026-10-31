@@ -48,6 +48,7 @@
               ./overskride-ui/src/overskride.gresource.xml
               ./overskride-ui/src/gtk
               ./overskride-ui/src/icons
+              ./data/${applicationId}.gschema.xml
             ];
           };
 
@@ -80,69 +81,66 @@
             }
           );
 
-          overskrideData = pkgs.stdenvNoCC.mkDerivation {
-            pname = "overskride-data";
+          packageMeta = {
+            description = "Bluetooth and OBEX client for GNOME";
+            mainProgram = "overskride";
+            license = lib.licenses.gpl3Plus;
+            platforms = lib.platforms.linux;
+          };
+
+          overskrideApplication = pkgs.stdenv.mkDerivation {
+            pname = "overskride-application";
             inherit (commonArgs) version;
             src = lib.fileset.toSource {
-              root = ./data;
+              root = ./.;
               fileset = lib.fileset.unions [
-                ./data/${applicationId}.desktop.in
-                ./data/${applicationId}.appdata.xml.in
-                ./data/${applicationId}.gschema.xml
-                ./data/icons/hicolor
+                ./Makefile
+                ./data
               ];
             };
             nativeBuildInputs = [
+              pkgs.wrapGAppsHook4
               pkgs.glib
-              pkgs.desktop-file-utils
             ];
-            installPhase = ''
-              runHook preInstall
-              install -Dm644 ${applicationId}.desktop.in $out/share/applications/${applicationId}.desktop
-              desktop-file-validate $out/share/applications/${applicationId}.desktop
-              install -Dm644 ${applicationId}.appdata.xml.in $out/share/metainfo/${applicationId}.metainfo.xml
-              install -Dm644 icons/hicolor/scalable/apps/${applicationId}.svg \
-                $out/share/icons/hicolor/scalable/apps/${applicationId}.svg
-              install -Dm644 icons/hicolor/symbolic/apps/${applicationId}-symbolic.svg \
-                $out/share/icons/hicolor/symbolic/apps/${applicationId}-symbolic.svg
-              install -Dm644 ${applicationId}.gschema.xml $out/share/glib-2.0/schemas/${applicationId}.gschema.xml
-              glib-compile-schemas --strict $out/share/glib-2.0/schemas
-              runHook postInstall
-            '';
-          };
-
-          runtimeEnvironment = {
-            GSETTINGS_SCHEMA_DIR = pkgs.glib.getSchemaPath overskrideData;
-          };
-
-          runtimeWrapperFlags = lib.concatStringsSep " " (
-            lib.mapAttrsToList (
-              variableName: variableValue: "--set ${variableName} ${lib.escapeShellArg variableValue}"
-            ) runtimeEnvironment
-          );
-
-          overskride = pkgs.stdenv.mkDerivation {
-            pname = "overskride";
-            inherit (commonArgs) version;
-            dontUnpack = true;
-            nativeBuildInputs = [ pkgs.wrapGAppsHook4 ];
             buildInputs = commonArgs.buildInputs;
+            dontBuild = true;
             installPhase = ''
               runHook preInstall
               install -Dm755 ${overskrideBinary}/bin/overskride $out/bin/overskride
-              mkdir -p $out/share
-              cp -r ${overskrideData}/share/. $out/share/
+              make install-metainfo install-schema install-icons DESTDIR=$out PREFIX=
+              glib-compile-schemas --strict $out/share/glib-2.0/schemas
               runHook postInstall
             '';
-            preFixup = ''
-              gappsWrapperArgs+=(${runtimeWrapperFlags})
-            '';
-            meta = {
-              description = "Bluetooth and OBEX client for GNOME";
-              mainProgram = "overskride";
-              license = lib.licenses.gpl3Plus;
-              platforms = lib.platforms.linux;
-            };
+            meta = packageMeta;
+          };
+
+          desktopEntry = pkgs.makeDesktopItem {
+            name = applicationId;
+            desktopName = "Overskride";
+            comment = "A simple yet powerful bluetooth app!";
+            exec = lib.getExe overskrideApplication;
+            icon = applicationId;
+            categories = [ "Utility" ];
+            keywords = [
+              "blue"
+              "bluetooth"
+              "transfer"
+              "send"
+              "audio"
+              "share"
+            ];
+            startupNotify = true;
+            terminal = false;
+          };
+
+          overskride = pkgs.symlinkJoin {
+            pname = "overskride";
+            inherit (commonArgs) version;
+            paths = [
+              overskrideApplication
+              desktopEntry
+            ];
+            meta = packageMeta;
           };
         in
         {
@@ -150,7 +148,6 @@
             commonArgs
             cargoArtifacts
             overskride
-            runtimeEnvironment
             ;
         };
     in
@@ -202,11 +199,9 @@
               builtOverskride.commonArgs.nativeBuildInputs
               ++ builtOverskride.commonArgs.buildInputs
               ++ [
-                pkgs.meson
-                pkgs.ninja
                 pkgs.desktop-file-utils
+                pkgs.appstream
               ];
-            env = builtOverskride.runtimeEnvironment;
           };
         }
       );

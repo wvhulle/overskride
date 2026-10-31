@@ -2,6 +2,7 @@
 name = "overskride-bluetooth"
 version = "0.6.5"
 edition = "2024"
+authors = ["kaii_lb <imkaiilb@gmail.com>", "Willem Vanhulle <willemvanhulle@gmail.com>"]
 
 [dependencies]
 async-stream = "0.3"

@@ -3,43 +3,53 @@ A Bluetooth and Obex client that is straight to the point, DE/WM agnostic, and b
 
 ![Screenshot](/assets/images/overskride.png)
 
-# How to install (recommended)
-- run `sudo systemctl enable --now bluetooth`
-- download the `.flatpak` from the latest build in the [the github actions page](https://github.com/kaii-lb/overskride/actions/)
-- save it to `~/Downloads/overskride-nightly.flatpak`
-- if needed, run `sudo flatpak install org.gnome.Platform//45`
-- double click the `.flatpak` or run `sudo flatpak install ~/Downloads/overskride-nightly.flatpak`
-- profit
+# Installing
 
-or you could: 
+Overskride talks to BlueZ, so the Bluetooth service has to run:
 
 ```bash
 sudo systemctl enable --now bluetooth
-curl -sSL https://nightly.link/kaii-lb/overskride/workflows/main/v0.5.4/overskride-nightly-x86_64.zip -o ~/Downloads/overskride-nightly.zip
-unzip ~/Downloads/overskride-nightly.zip -d ~/Downloads/
-sudo flatpak install org.gnome.Platform//45 # only if needed
-sudo flatpak install -y ~/Downloads/overskride-nightly.flatpak
-rm ~/Downloads/overskride-nightly.flatpak
 ```
 
-# Prerequisites for building
-- gtk4 and libadwaita (development packages)
-- rust
-- cargo
-- bluez (should be installed by default on all distros)
+File transfers also need `obexd` (often packaged as `bluez-obex`).
 
-# Compiling
+- **Flatpak:** download `overskride-nightly.flatpak` from the latest run on the [GitHub Actions page](https://github.com/kaii-lb/overskride/actions/) and install it with `flatpak install --user overskride-nightly.flatpak`.
+- **Nix:** `nix run github:kaii-lb/overskride`, or add the flake's `overlays.default` to your system.
+- **From source:** see below.
+
+# Building
+
+## Prerequisites
+
+- Rust, preferably through [rustup](https://rustup.rs), which picks up `rust-toolchain.toml`
+- Development packages for GTK 4 (≥ 4.16), libadwaita (≥ 1.6), D-Bus and PulseAudio (libpulse)
+- `glib-compile-schemas` (part of GLib)
+
+On Nix, `nix develop` (or `direnv allow`) provides all of these.
+
+## Running from the checkout
+
 ```bash
-git clone https://github.com/kaii-lb/overskride && cd overskride
-meson setup build && cd build
-meson compile && meson devenv
-mkdir -p ~/.local/share/glib-2.0/schemas
-cp ../data/io.github.kaii_lb.Overskride.gschema.xml ~/.local/share/glib-2.0/schemas
-glib-compile-schemas ~/.local/share/glib-2.0/schemas
-./overskride-ui/overskride
+cargo run -p overskride-ui
 ```
 
-###### this should be automated later on but oh well
+No installation is needed: the build compiles the GSettings schema and the app uses it when no installed schema is found.
+
+## Installing
+
+```bash
+make
+sudo make install            # PREFIX defaults to /usr/local
+sudo make uninstall
+```
+
+`make install DESTDIR=… PREFIX=/usr` stages files for distribution packages. `make check` runs the tests and validates the desktop file, metainfo and schema.
+
+## Flatpak
+
+```bash
+flatpak-builder --user --install --force-clean flatpak-build io.github.kaii_lb.Overskride.json
+```
 
 # Features
 - Dynamically enumerate and list all devices known/in range 

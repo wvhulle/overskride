@@ -2,7 +2,7 @@
 name = "overskride-ui"
 version = "0.6.5"
 edition = "2024"
-authors = ["kaii_lb <imkaiilb@gmail.com"]
+authors = ["kaii_lb <imkaiilb@gmail.com>", "Willem Vanhulle <willemvanhulle@gmail.com>"]
 
 [[bin]]
 name = "overskride"

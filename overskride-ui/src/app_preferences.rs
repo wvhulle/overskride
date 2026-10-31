@@ -12,10 +12,30 @@ pub struct AppPreferences {
     settings: gio::Settings,
 }
 
+fn installed_settings() -> Option<gio::Settings> {
+    let installed_source = gio::SettingsSchemaSource::default()?;
+    installed_source.lookup(APPLICATION_ID, true)?;
+    Some(gio::Settings::new(APPLICATION_ID))
+}
+
+fn bundled_settings() -> gio::Settings {
+    let installed_source = gio::SettingsSchemaSource::default();
+    let bundled_source = gio::SettingsSchemaSource::from_directory(
+        env!("OVERSKRIDE_COMPILED_SCHEMAS"),
+        installed_source.as_ref(),
+        false,
+    )
+    .expect("the settings schema is compiled at build time");
+    let Some(bundled_schema) = bundled_source.lookup(APPLICATION_ID, false) else {
+        panic!("the compiled schema directory lacks {APPLICATION_ID}");
+    };
+    gio::Settings::new_full(&bundled_schema, None::<&gio::SettingsBackend>, None)
+}
+
 impl AppPreferences {
     pub fn load() -> Self {
         Self {
-            settings: gio::Settings::new(APPLICATION_ID),
+            settings: installed_settings().unwrap_or_else(bundled_settings),
         }
     }
 
