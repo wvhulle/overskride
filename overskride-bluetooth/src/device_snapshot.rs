@@ -1,0 +1,289 @@
+use std::collections::{BTreeSet, HashMap};
+use std::str::FromStr;
+
+use bluer::DeviceProperty;
+
+use crate::bluetooth_error::BluetoothError;
+use crate::kernel_input_devices::{KernelInputBinding, find_kernel_input_devices};
+use crate::service_names::describe_service;
+use crate::session::DeviceLocation;
+
+pub const UNKNOWN_DEVICE_NAME: &str = "Unknown Device";
+pub const OBJECT_PUSH_SERVICE: bluer::Uuid = bluer::Uuid::from_u128(0x0000_1105_0000_1000_8000_0080_5f9b_34fb);
+pub const HUMAN_INTERFACE_DEVICE_SERVICE: bluer::Uuid = bluer::Uuid::from_u128(0x0000_1124_0000_1000_8000_0080_5f9b_34fb);
+const FALLBACK_TRANSMIT_POWER: i16 = -59;
+const PATH_LOSS_EXPONENT: f32 = 3.0;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BatteryReading {
+    Unknown,
+    Percentage(u8),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SignalStrength {
+    Unknown,
+    Measured(i16),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransmitPower {
+    Unknown,
+    Reported(i16),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeviceClass {
+    Unknown,
+    Reported(u32),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Manufacturer {
+    Unknown,
+    Identified(String),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DistanceEstimate {
+    Unknown,
+    Meters(f32),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct DeviceSnapshot {
+    pub location: DeviceLocation,
+    pub alias: String,
+    pub icon_name: String,
+    pub signal_strength: SignalStrength,
+    pub transmit_power: TransmitPower,
+    pub reported_battery: BatteryReading,
+    pub connected: bool,
+    pub paired: bool,
+    pub bonded: bool,
+    pub trusted: bool,
+    pub blocked: bool,
+    pub legacy_pairing: bool,
+    pub address_type: String,
+    pub device_class: DeviceClass,
+    pub services: BTreeSet<bluer::Uuid>,
+    pub manufacturer: Manufacturer,
+    pub kernel_input: KernelInputBinding,
+}
+
+fn identify_manufacturer(manufacturer_data: &HashMap<u16, Vec<u8>>) -> Manufacturer {
+    manufacturer_data
+        .keys()
+        .max()
+        .and_then(|company_identifier| bluer::id::Manufacturer::try_from(*company_identifier).ok())
+        .map_or(Manufacturer::Unknown, |manufacturer| Manufacturer::Identified(manufacturer.to_string()))
+}
+
+fn signal_strength_from(rssi: Option<i16>) -> SignalStrength {
+    rssi.map_or(SignalStrength::Unknown, SignalStrength::Measured)
+}
+
+fn kernel_input_for(address: bluer::Address, connected: bool) -> KernelInputBinding {
+    if connected {
+        find_kernel_input_devices(address)
+    } else {
+        KernelInputBinding::Absent
+    }
+}
+
+pub fn alias_looks_like_address(alias: &str) -> bool {
+    bluer::Address::from_str(&alias.replace('-', ":")).is_ok()
+}
+
+impl DeviceSnapshot {
+    pub(crate) async fn read(device: &bluer::Device, location: DeviceLocation) -> Result<Self, BluetoothError> {
+        let paired = device.is_paired().await?;
+        let connected = device.is_connected().await?;
+        Ok(Self {
+            alias: device.alias().await?,
+            icon_name: device.icon().await?.unwrap_or_default(),
+            signal_strength: signal_strength_from(device.rssi().await?),
+            transmit_power: device.tx_power().await?.map_or(TransmitPower::Unknown, TransmitPower::Reported),
+            reported_battery: device
+                .battery_percentage()
+                .await?
+                .map_or(BatteryReading::Unknown, BatteryReading::Percentage),
+            connected,
+            paired,
+            bonded: device.is_bonded().await?.unwrap_or(paired),
+            trusted: device.is_trusted().await?,
+            blocked: device.is_blocked().await?,
+            legacy_pairing: device.is_legacy_pairing().await?,
+            address_type: device.address_type().await?.to_string(),
+            device_class: device.class().await?.map_or(DeviceClass::Unknown, DeviceClass::Reported),
+            services: device.uuids().await?.unwrap_or_default().into_iter().collect(),
+            manufacturer: identify_manufacturer(&device.manufacturer_data().await?.unwrap_or_default()),
+            kernel_input: kernel_input_for(location.address, connected),
+            location,
+        })
+    }
+
+    pub fn apply_property(&mut self, changed_property: DeviceProperty) -> PropertyRelevance {
+        match changed_property {
+            DeviceProperty::Alias(alias) => self.alias = alias,
+            DeviceProperty::Icon(icon_name) => self.icon_name = icon_name,
+            DeviceProperty::Rssi(rssi) => self.signal_strength = SignalStrength::Measured(rssi),
+            DeviceProperty::TxPower(transmit_power) => self.transmit_power = TransmitPower::Reported(transmit_power),
+            DeviceProperty::BatteryPercentage(battery_percent) => {
+                self.reported_battery = BatteryReading::Percentage(battery_percent);
+            }
+            DeviceProperty::Connected(connected) => {
+                self.connected = connected;
+                return PropertyRelevance::ConnectionChanged;
+            }
+            DeviceProperty::Paired(paired) => self.paired = paired,
+            DeviceProperty::Bonded(bonded) => self.bonded = bonded,
+            DeviceProperty::Trusted(trusted) => self.trusted = trusted,
+            DeviceProperty::Blocked(blocked) => self.blocked = blocked,
+            DeviceProperty::LegacyPairing(legacy_pairing) => self.legacy_pairing = legacy_pairing,
+            DeviceProperty::Class(device_class) => self.device_class = DeviceClass::Reported(device_class),
+            DeviceProperty::Uuids(services) => self.services = services.into_iter().collect(),
+            DeviceProperty::ManufacturerData(manufacturer_data) => {
+                self.manufacturer = identify_manufacturer(&manufacturer_data);
+            }
+            _ => return PropertyRelevance::Ignored,
+        }
+        PropertyRelevance::Displayed
+    }
+
+    pub(crate) fn refresh_kernel_input(&mut self) {
+        self.kernel_input = kernel_input_for(self.location.address, self.connected);
+    }
+
+    pub fn address(&self) -> bluer::Address {
+        self.location.address
+    }
+
+    pub fn has_meaningful_name(&self) -> bool {
+        !alias_looks_like_address(&self.alias)
+    }
+
+    pub fn display_name(&self) -> &str {
+        if self.has_meaningful_name() {
+            &self.alias
+        } else {
+            UNKNOWN_DEVICE_NAME
+        }
+    }
+
+    pub fn battery(&self) -> BatteryReading {
+        match (self.reported_battery, &self.kernel_input) {
+            (BatteryReading::Percentage(battery_percent), _) => BatteryReading::Percentage(battery_percent),
+            (BatteryReading::Unknown, KernelInputBinding::Bound(kernel_input_devices)) => kernel_input_devices.battery,
+            (BatteryReading::Unknown, KernelInputBinding::Absent) => BatteryReading::Unknown,
+        }
+    }
+
+    pub fn is_gamepad(&self) -> bool {
+        self.icon_name == "input-gaming"
+    }
+
+    pub fn is_input_device(&self) -> bool {
+        self.services.contains(&HUMAN_INTERFACE_DEVICE_SERVICE) || self.icon_name.starts_with("input-")
+    }
+
+    pub fn offers_object_push(&self) -> bool {
+        self.services.contains(&OBJECT_PUSH_SERVICE)
+    }
+
+    pub fn service_names(&self) -> Vec<String> {
+        self.services.iter().copied().filter_map(describe_service).collect()
+    }
+
+    pub fn distance_estimate(&self) -> DistanceEstimate {
+        let SignalStrength::Measured(rssi) = self.signal_strength else {
+            return DistanceEstimate::Unknown;
+        };
+        let measured_power = match self.transmit_power {
+            TransmitPower::Reported(transmit_power) => transmit_power,
+            TransmitPower::Unknown => FALLBACK_TRANSMIT_POWER,
+        };
+        let path_loss = f32::from(measured_power) - f32::from(rssi);
+        DistanceEstimate::Meters(10f32.powf(path_loss / (10.0 * PATH_LOSS_EXPONENT)))
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PropertyRelevance {
+    Displayed,
+    ConnectionChanged,
+    Ignored,
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    pub(crate) fn sample_snapshot() -> DeviceSnapshot {
+        DeviceSnapshot {
+            location: DeviceLocation {
+                adapter_name: "hci0".to_string(),
+                address: bluer::Address::new([0x10, 0x20, 0x30, 0x40, 0x50, 0x60]),
+            },
+            alias: "DualSense Wireless Controller".to_string(),
+            icon_name: "input-gaming".to_string(),
+            signal_strength: SignalStrength::Unknown,
+            transmit_power: TransmitPower::Unknown,
+            reported_battery: BatteryReading::Unknown,
+            connected: false,
+            paired: false,
+            bonded: false,
+            trusted: false,
+            blocked: false,
+            legacy_pairing: false,
+            address_type: "public".to_string(),
+            device_class: DeviceClass::Unknown,
+            services: BTreeSet::new(),
+            manufacturer: Manufacturer::Unknown,
+            kernel_input: KernelInputBinding::Absent,
+        }
+    }
+
+    #[test]
+    fn address_shaped_alias_is_shown_as_unknown_device() {
+        let mut snapshot = sample_snapshot();
+        snapshot.alias = "10-20-30-40-50-60".to_string();
+        assert_eq!(snapshot.display_name(), UNKNOWN_DEVICE_NAME);
+        assert!(!snapshot.has_meaningful_name());
+    }
+
+    #[test]
+    fn applying_connected_requests_kernel_refresh() {
+        let mut snapshot = sample_snapshot();
+        assert_eq!(snapshot.apply_property(DeviceProperty::Connected(true)), PropertyRelevance::ConnectionChanged);
+        assert!(snapshot.connected);
+    }
+
+    #[test]
+    fn applying_rssi_updates_signal_strength() {
+        let mut snapshot = sample_snapshot();
+        assert_eq!(snapshot.apply_property(DeviceProperty::Rssi(-70)), PropertyRelevance::Displayed);
+        assert_eq!(snapshot.signal_strength, SignalStrength::Measured(-70));
+    }
+
+    #[test]
+    fn distance_needs_a_signal_measurement() {
+        let mut snapshot = sample_snapshot();
+        assert_eq!(snapshot.distance_estimate(), DistanceEstimate::Unknown);
+        snapshot.signal_strength = SignalStrength::Measured(FALLBACK_TRANSMIT_POWER);
+        assert_eq!(snapshot.distance_estimate(), DistanceEstimate::Meters(1.0));
+    }
+
+    #[test]
+    fn reported_battery_wins_over_kernel_battery() {
+        let mut snapshot = sample_snapshot();
+        snapshot.kernel_input = KernelInputBinding::Bound(crate::kernel_input_devices::KernelInputDevices {
+            driver_name: "playstation".to_string(),
+            input_nodes: Vec::new(),
+            battery: BatteryReading::Percentage(40),
+        });
+        assert_eq!(snapshot.battery(), BatteryReading::Percentage(40));
+        snapshot.reported_battery = BatteryReading::Percentage(80);
+        assert_eq!(snapshot.battery(), BatteryReading::Percentage(80));
+    }
+}

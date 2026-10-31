@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["overskride-ui"]
+members = ["overskride-bluetooth", "overskride-ui"]
 
 [patch.crates-io]
 bluer = { git = "https://github.com/wvhulle/bluer", rev = "907f8ec76cf25bf536c8ac6a83d8ce6442575cc4" }
