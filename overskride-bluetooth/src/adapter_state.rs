@@ -100,23 +100,16 @@ pub async fn set_powered(
     AdapterSnapshot::read(&adapter).await
 }
 
-pub async fn set_discoverable(
+pub async fn set_visible_for_pairing(
     session: &BluetoothSession,
     adapter_name: &str,
-    discoverable: bool,
+    visible: bool,
 ) -> Result<AdapterSnapshot, BluetoothError> {
     let adapter = session.adapter(adapter_name)?;
-    adapter.set_discoverable(discoverable).await?;
-    AdapterSnapshot::read(&adapter).await
-}
-
-pub async fn set_pairable(
-    session: &BluetoothSession,
-    adapter_name: &str,
-    pairable: bool,
-) -> Result<AdapterSnapshot, BluetoothError> {
-    let adapter = session.adapter(adapter_name)?;
-    adapter.set_pairable(pairable).await?;
+    if visible {
+        adapter.set_pairable(true).await?;
+    }
+    adapter.set_discoverable(visible).await?;
     AdapterSnapshot::read(&adapter).await
 }
 

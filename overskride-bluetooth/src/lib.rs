@@ -17,4 +17,4 @@ pub mod radios;
 pub mod service_names;
 pub mod session;
 
-pub use bluer::{Address, Uuid};
+pub use bluer::{Address, AddressType, Uuid};
